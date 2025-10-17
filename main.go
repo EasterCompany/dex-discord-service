@@ -113,7 +113,7 @@ func main() {
 
 	// Add event handlers
 	s.AddHandler(events.MessageCreate)
-	// s.AddHandler(events.SpeakingUpdate) // Use the correct handler for speaking updates
+	s.AddHandler(events.SpeakingUpdate) // Use the correct handler for speaking updates
 
 	if bootMessage != nil {
 		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Websocket connection opened")
@@ -121,9 +121,16 @@ func main() {
 
 	// Health and system checks
 	go func() {
-		for {
+		var cpuUsages []float64
+		var memUsages []float64
+		startTime := time.Now()
+
+		for time.Since(startTime) < 10*time.Second {
 			cpuUsage, _ := system.GetCPUUsage()
 			memUsage, _ := system.GetMemoryUsage()
+			cpuUsages = append(cpuUsages, cpuUsage)
+			memUsages = append(memUsages, memUsage)
+
 			discordStatus := "✅"
 			if health.CheckDiscordConnection(s) != nil {
 				discordStatus = "❌"
@@ -134,7 +141,33 @@ func main() {
 				logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+status)
 			}
 
-			time.Sleep(5 * time.Second)
+			time.Sleep(1 * time.Second) // Update every second for 10 seconds
+		}
+
+		avgCPU := 0.0
+		if len(cpuUsages) > 0 {
+			for _, u := range cpuUsages {
+				avgCPU += u
+			}
+			avgCPU /= float64(len(cpuUsages))
+		}
+
+		avgMem := 0.0
+		if len(memUsages) > 0 {
+			for _, u := range memUsages {
+				avgMem += u
+			}
+			avgMem /= float64(len(memUsages))
+		}
+
+		discordStatus := "✅"
+		if health.CheckDiscordConnection(s) != nil {
+				discordStatus = "❌"
+			}
+
+		finalStatus := fmt.Sprintf("\n\n**Health & System Status (10s Avg)**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", avgCPU, avgMem, discordStatus)
+		if bootMessage != nil {
+			logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+finalStatus)
 		}
 	}()
 
