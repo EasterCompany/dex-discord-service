@@ -8,7 +8,6 @@ require (
 	github.com/bwmarrin/discordgo v0.29.0
 	github.com/pion/rtp v1.8.3
 	github.com/pion/webrtc/v3 v3.2.22
-	google.golang.org/api v0.95.0
 	google.golang.org/genproto v0.0.0-20220624142145-8cd45d7dbd1f
 )
 
@@ -28,6 +27,7 @@ require (
 	golang.org/x/oauth2 v0.0.0-20220909003341-f21342109be1 // indirect
 	golang.org/x/sys v0.11.0 // indirect
 	golang.org/x/text v0.12.0 // indirect
+	google.golang.org/api v0.95.0 // indirect
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/grpc v1.48.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect

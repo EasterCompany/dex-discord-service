@@ -20,29 +20,65 @@ func getDexterDataPath() (string, error) {
 	return filepath.Join(home, "Dexter", "discord", "server"), nil
 }
 
-// SaveMessage saves a message from a server channel to a JSON file.
+// SaveMessageHistory saves a bulk of messages from a server channel to a JSON file, overwriting any existing file.
+func SaveMessageHistory(guildID, channelID string, messages []*discordgo.Message) error {
+	basePath, err := getDexterDataPath()
+	if err != nil {
+		return err
+	}
+
+	path := filepath.Join(basePath, guildID, channelID)
+	if err := os.MkdirAll(path, 0755); err != nil {
+		return fmt.Errorf("could not create directory structure %s: %w", path, err)
+	}
+
+	filePath := filepath.Join(path, "messages.json")
+
+	data, err := json.MarshalIndent(messages, "", "  ")
+	if err != nil {
+		return fmt.Errorf("could not marshal messages to JSON: %w", err)
+	}
+
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// SaveMessage appends a message from a server channel to a JSON file.
 func SaveMessage(guildID, channelID string, m *discordgo.Message) error {
 	basePath, err := getDexterDataPath()
 	if err != nil {
 		return err
 	}
 
-	// Construct the full path for the message logs.
-	path := filepath.Join(basePath, guildID, channelID, "messages")
+	path := filepath.Join(basePath, guildID, channelID)
 	if err := os.MkdirAll(path, 0755); err != nil {
 		return fmt.Errorf("could not create directory structure %s: %w", path, err)
 	}
 
-	// Marshal the message object into a pretty JSON format.
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return fmt.Errorf("could not marshal message to JSON: %w", err)
+	filePath := filepath.Join(path, "messages.json")
+
+	var messages []*discordgo.Message
+	data, err := os.ReadFile(filePath)
+	if err == nil {
+		if err := json.Unmarshal(data, &messages); err != nil {
+			// Log the error and start with a fresh list.
+			// This will overwrite corrupted data.
+			fmt.Printf("could not unmarshal existing messages, starting fresh: %v", err)
+			messages = []*discordgo.Message{}
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("could not read messages file: %w", err)
 	}
 
-	// Write the JSON data to a file named after the message ID.
-	filePath := filepath.Join(path, fmt.Sprintf("%s.json", m.ID))
+	messages = append(messages, m)
+
+	data, err = json.MarshalIndent(messages, "", "  ")
+	if err != nil {
+		return fmt.Errorf("could not marshal messages to JSON: %w", err)
+	}
+
 	return os.WriteFile(filePath, data, 0644)
 }
+
 
 // LogTranscription appends a timestamped transcription to a log file for a specific channel.
 func LogTranscription(guildID, channelID, user, transcription string) error {
@@ -75,4 +111,3 @@ func LogTranscription(guildID, channelID, user, transcription string) error {
 
 	return nil
 }
-

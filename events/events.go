@@ -31,14 +31,16 @@ type userStream struct {
 }
 
 var (
-	activeStreams    = make(map[uint32]*userStream)
-	ssrcUserMap      = make(map[uint32]string)
-	mu               sync.Mutex
-	ssrcUserMapMutex sync.Mutex
+	activeStreams         = make(map[uint32]*userStream)
+	ssrcUserMap           = make(map[uint32]string)
+	mu                    sync.Mutex
+	ssrcUserMapMutex      sync.Mutex
+	channelHistoryFetched = make(map[string]bool)
+	historyMutex          sync.Mutex
 )
 
 // SpeakingUpdate is triggered when a user starts or stops speaking.
-func SpeakingUpdate(s *discordgo.Session, p *discordgo.SpeakingUpdate) {
+func SpeakingUpdate(s *discordgo.Session, p *discordgo.VoiceSpeakingUpdate) {
 	ssrcUserMapMutex.Lock()
 	defer ssrcUserMapMutex.Unlock()
 	// Map the SSRC to the UserID when they start speaking.
@@ -69,12 +71,60 @@ func MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
+func fetchAndSaveChannelHistory(s *discordgo.Session, guildID, channelID string) {
+	historyMutex.Lock()
+	if channelHistoryFetched[channelID] {
+		historyMutex.Unlock()
+		return
+	}
+	historyMutex.Unlock()
+
+	log.Printf("Starting history fetch for channel %s", channelID)
+
+	var allMessages []*discordgo.Message
+	lastID := ""
+
+	for {
+		messages, err := s.ChannelMessages(channelID, 100, lastID, "", "")
+		if err != nil {
+			log.Printf("Error fetching messages for channel %s: %v", channelID, err)
+			return
+		}
+
+		if len(messages) == 0 {
+			break
+		}
+
+		allMessages = append(allMessages, messages...)
+		lastID = messages[len(messages)-1].ID
+	}
+
+	// Reverse the messages to have them in chronological order.
+	for i, j := 0, len(allMessages)-1; i < j; i, j = i+1, j-1 {
+		allMessages[i], allMessages[j] = allMessages[j], allMessages[i]
+	}
+
+	if err := store.SaveMessageHistory(guildID, channelID, allMessages); err != nil {
+		log.Printf("Error saving message history for channel %s: %v", channelID, err)
+		return
+	}
+
+	historyMutex.Lock()
+	channelHistoryFetched[channelID] = true
+	historyMutex.Unlock()
+
+	log.Printf("Successfully fetched and saved history for channel %s", channelID)
+}
+
 func joinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 	g, err := s.State.Guild(m.GuildID)
 	if err != nil {
 		log.Printf("Error getting guild: %v", err)
 		return
 	}
+
+	// Fetch channel history in a goroutine.
+	go fetchAndSaveChannelHistory(s, m.GuildID, m.ChannelID)
 
 	for _, vs := range g.VoiceStates {
 		if vs.UserID == m.Author.ID {
@@ -133,7 +183,7 @@ func handleAudioPacket(s *discordgo.Session, guildID, voiceChannelID string, p *
 		ssrcUserMapMutex.Unlock()
 
 		if !userOk {
-			return // Don't log, we don't know who this is yet.
+			return // We don't know who this is yet, wait for a SpeakingUpdate.
 		}
 
 		pr, pw := io.Pipe()
@@ -153,7 +203,6 @@ func handleAudioPacket(s *discordgo.Session, guildID, voiceChannelID string, p *
 		}
 
 		startTime := time.Now()
-		// A voice channel is its own channel, so we use its ID for messages.
 		msg, err := s.ChannelMessageSend(voiceChannelID, fmt.Sprintf("`%s` started speaking at `%s`", user.Username, startTime.Format("15:04:05 MST")))
 		if err != nil {
 			cancel()
@@ -170,7 +219,7 @@ func handleAudioPacket(s *discordgo.Session, guildID, voiceChannelID string, p *
 			user:       user,
 			startTime:  startTime,
 			guildID:    guildID,
-			channelID:  voiceChannelID, // Use the voice channel ID for logging.
+			channelID:  voiceChannelID,
 		}
 		activeStreams[p.SSRC] = stream
 
@@ -199,7 +248,7 @@ func checkStreamTimeouts() {
 
 	for ssrc, stream := range activeStreams {
 		if time.Since(stream.lastPacket) > 2*time.Second {
-			log.Printf("User with SSRC %d timed out. Closing stream.", ssrc)
+			log.Printf("User %s timed out. Closing stream.", stream.user.Username)
 			stream.writer.Close()
 			stream.cancelFunc()
 			delete(activeStreams, ssrc)

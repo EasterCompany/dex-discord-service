@@ -1,125 +1,59 @@
 #!/bin/bash
 
-# ==============================================================================
-# Dexter Discord Interface Universal Installer & Systemd Setup
-#
-# This script automates the installation of the Dexter Discord Interface service.
-# ==============================================================================
+# Stop and disable the old service
+sudo systemctl stop dex-discord-interface.service
+sudo systemctl disable dex-discord-interface.service
 
-# --- Configuration ---
-SRC_PARENT_DIR="$HOME/.dexter"
-SRC_DIR="$SRC_PARENT_DIR/dex-discord-interface"
-DATA_DIR="$HOME/Dexter/Discord/Users/Messages"
-GIT_REPO_URL_SSH="git@github.com:EasterCompany/dex-discord-interface.git"
+# Remove old files
+sudo rm /usr/local/bin/dex-discord-interface
+sudo rm /etc/systemd/system/dex-discord-interface.service
 
-# --- Script Setup ---
-set -e
+# Create Dexter config directory
+sudo mkdir -p /root/Dexter
 
-# --- Helper Functions ---
-log() {
-  echo "[INFO] $1"
-}
+# Copy config file
+sudo cp config.json /root/Dexter/config.json
 
-error() {
-  echo "[ERROR] $1" >&2
-  exit 1
-}
+# Create gcloud config directory
+sudo mkdir -p /root/gcloud
 
-# --- OS Detection and Dependency Installation ---
-install_dependencies() {
-  log "Detecting operating system..."
-  if ! command -v go &>/dev/null; then
-    log "Go is not installed. Installing Go..."
-    if command -v yay &>/dev/null; then
-      log "Arch-based system detected. Using yay."
-      sudo yay -Syu --noconfirm go
-    elif command -v apt &>/dev/null; then
-      log "Debian/Ubuntu system detected. Using apt."
-      sudo apt update
-      sudo apt install -y golang-go
-    else
-      error "Unsupported package manager. Please install Go manually."
-    fi
-  else
-    log "Go is already installed."
-  fi
-}
+# Copy credentials file
+sudo cp credentials.json /root/gcloud/credentials.json
 
-# --- Service Management ---
-stop_and_disable_service() {
-  log "Stopping and disabling any existing Dexter Discord Interface service..."
-  if systemctl list-units --type=service | grep -q 'dexter-discord-interface.service'; then
-    sudo systemctl stop dexter-discord-interface.service || true
-    sudo systemctl disable dexter-discord-interface.service || true
-  fi
-}
+# Build the Go project
+GOOS=linux GOARCH=amd64 go build -o dex-discord-interface main.go
 
-# --- Project Cleanup and Setup ---
-setup_project() {
-  log "Ensuring parent source directory exists at $SRC_PARENT_DIR..."
-  mkdir -p "$SRC_PARENT_DIR"
+# Move the binary to /usr/local/bin
+sudo mv dex-discord-interface /usr/local/bin/
 
-  log "Setting up source code directory at $SRC_DIR..."
-  if [ -d "$SRC_DIR" ]; then
-    log "Removing existing dex-discord-interface source directory."
-    rm -rf "$SRC_DIR"
-  fi
-
-  log "Creating user data directory at $DATA_DIR..."
-  mkdir -p "$DATA_DIR"
-
-  log "Cloning repository via SSH into $SRC_DIR..."
-  git clone "$GIT_REPO_URL_SSH" "$SRC_DIR"
-
-  log "Building Go application..."
-  cd "$SRC_DIR"
-  go build -o dexter-discord-interface main.go
-  cd -
-
-  log "Initial setup complete."
-}
-
-# --- Systemd Service Creation ---
-create_systemd_service() {
-  log "Creating systemd service file..."
-  cat <<EOF | sudo tee /etc/systemd/system/dexter-discord-interface.service
+# Create the systemd service file
+sudo tee /etc/systemd/system/dex-discord-interface.service > /dev/null <<EOL
 [Unit]
-Description=Dexter Discord Interface
+Description=Dex Discord Interface
 After=network.target
 
 [Service]
-User=$USER
-Group=$(id -gn $USER)
-WorkingDirectory=$SRC_DIR
-ExecStart=$SRC_DIR/dexter-discord-interface
-Restart=on-failure
-RestartSec=5
+User=root
+Group=root
+WorkingDirectory=/usr/local/bin
+ExecStart=/usr/local/bin/dex-discord-interface
+Restart=always
+Environment="GOOGLE_APPLICATION_CREDENTIALS=/root/gcloud/credentials.json"
 
 [Install]
 WantedBy=multi-user.target
-EOF
+EOL
 
-  log "Reloading systemd daemon..."
-  sudo systemctl daemon-reload
-}
+# Reload systemd, enable and start the service
+sudo systemctl daemon-reload
+sudo systemctl enable dex-discord-interface.service
+sudo systemctl start dex-discord-interface.service
 
-# --- Final Service Start ---
-start_service() {
-  log "Enabling and starting dexter-discord-interface service..."
-  sudo systemctl enable --now dexter-discord-interface.service
-  sudo systemctl status dexter-discord-interface.service
-}
-
-# --- Main Execution ---
-main() {
-  log "Starting Dexter Discord Interface installation..."
-  install_dependencies
-  stop_and_disable_service
-  setup_project
-  create_systemd_service
-  start_service
-  log "Installation complete!"
-  log "View logs with: journalctl -u dexter-discord-interface -f"
-}
-
-main
+# Health check
+if systemctl is-active --quiet dex-discord-interface.service; then
+  echo "Dex Discord Interface is running."
+else
+  echo "Error: Dex Discord Interface failed to start."
+  sudo journalctl -u dex-discord-interface.service
+  exit 1
+fi
