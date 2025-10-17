@@ -26,6 +26,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("Fatal error loading config: %v", err)
 	}
+	log.Printf("Discord token loaded: %s", cfg.Discord.Token)
 
 	// Create a new Discord session using the token from the config
 	s, err := session.NewSession(cfg.Discord.Token)
