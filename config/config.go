@@ -4,6 +4,7 @@ package config
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 )
@@ -58,6 +59,7 @@ func loadRedisConfig(path string) (*RedisConfig, error) {
 }
 
 func loadOrCreate(path string, v interface{}, defaultConfig interface{}) error {
+	log.Printf("Loading config from: %s", path)
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {

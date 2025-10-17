@@ -32,6 +32,24 @@ chown -R root:root /root/gcloud
 
 echo "Configuration files and executable installed."
 
+echo "Creating systemd service file..."
+cat <<EOT > /etc/systemd/system/dex-discord-interface.service
+[Unit]
+Description=Dex Discord Interface
+After=network.target
+
+[Service]
+User=root
+Group=root
+WorkingDirectory=/usr/local/bin
+ExecStart=/usr/local/bin/dex-discord-interface
+Restart=always
+Environment="GOOGLE_APPLICATION_CREDENTIALS=/root/gcloud/credentials.json"
+
+[Install]
+WantedBy=multi-user.target
+EOT
+
 # --- Systemd ---
 echo "Reloading systemd, enabling and starting the service..."
 systemctl daemon-reload
