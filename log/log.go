@@ -15,14 +15,12 @@ var (
 
 // Init initializes the log module with a discord session
 func Init(s *discordgo.Session, channelID string) {
-	log.Println("Initializing logger...")
 	session = s
 	logChannelID = channelID
 	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
-		log.Println("Discord Ready event received.")
-		log.Println("Discord session is ready.")
 		close(ready)
 	})
+	log.SetOutput(&discordWriter{})
 	
 }
 
@@ -35,9 +33,7 @@ func Post(msg string) {
 
 // PostInitialMessage sends an initial message and returns the message object
 func PostInitialMessage(msg string) (*discordgo.Message, error) {
-	log.Println("Waiting for Discord session to be ready...")
 	<-ready
-	log.Println("Discord session is ready. Posting initial message...")
 	if session != nil && logChannelID != "" {
 		return session.ChannelMessageSend(logChannelID, msg)
 	}

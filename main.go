@@ -26,13 +26,15 @@ func main() {
 	if err != nil {
 		log.Fatalf("Fatal error loading config: %v", err)
 	}
-	log.Printf("Discord token loaded: %s", cfg.Discord.Token)
 
 	// Create a new Discord session using the token from the config
 	s, err := session.NewSession(cfg.Discord.Token)
 	if err != nil {
 		log.Fatalf("Error creating Discord session: %v", err)
 	}
+
+	// Initialize the logger
+	logger.Init(s, cfg.Discord.LogChannelID)
 
 	// Open a websocket connection to Discord and begin listening
 	err = s.Open()
