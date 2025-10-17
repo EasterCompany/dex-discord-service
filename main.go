@@ -113,7 +113,7 @@ func main() {
 
 	// Add event handlers
 	s.AddHandler(events.MessageCreate)
-	s.AddHandler(events.SpeakingUpdate) // Use the correct handler for speaking updates
+	// s.AddHandler(events.SpeakingUpdate) // Use the correct handler for speaking updates
 
 	if bootMessage != nil {
 		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Websocket connection opened")
