@@ -19,6 +19,7 @@ func Init(s *discordgo.Session, channelID string) {
 	session = s
 	logChannelID = channelID
 	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
+		log.Println("Discord Ready event received.")
 		log.Println("Discord session is ready.")
 		close(ready)
 	})
