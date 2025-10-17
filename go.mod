@@ -5,7 +5,7 @@ go 1.22.0
 
 require (
 	cloud.google.com/go/speech v1.6.0
-	github.com/bwmarrin/discordgo v0.29.0
+	github.com/bwmarrin/discordgo v0.29.1-0.20250921100450-b2bf06886f03
 	github.com/pion/rtp v1.8.3
 	github.com/pion/webrtc/v3 v3.2.22
 	google.golang.org/genproto v0.0.0-20220624142145-8cd45d7dbd1f

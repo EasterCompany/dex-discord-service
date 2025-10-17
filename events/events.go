@@ -156,6 +156,7 @@ func joinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 				log.Printf("Error joining voice channel: %v", err)
 				return
 			}
+			s.AddHandler(SpeakingUpdate)
 			go handleVoice(s, m.GuildID, vs.ChannelID, vc) // Pass GuildID and the voice channel ID
 			return
 		}

@@ -112,10 +112,7 @@ func main() {
 	events.Init(db, sttClient)
 
 	// Add event handlers
-	log.Println("Adding MessageCreate handler")
 	s.AddHandler(events.MessageCreate)
-	log.Println("Adding SpeakingUpdate handler")
-	s.AddHandler(events.SpeakingUpdate)
 
 	if bootMessage != nil {
 		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Websocket connection opened")
