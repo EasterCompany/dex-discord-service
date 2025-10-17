@@ -23,7 +23,7 @@ func Init(s *discordgo.Session, channelID string) {
 		log.Println("Discord session is ready.")
 		close(ready)
 	})
-	log.SetOutput(&discordWriter{})
+	
 }
 
 // Post sends a message to the log channel
