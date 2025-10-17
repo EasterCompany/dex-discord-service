@@ -163,7 +163,7 @@ func main() {
 		if health.CheckDiscordConnection(s) != nil {
 			discordStatus = "**FAILED**"
 		}
-		finalStatus := fmt.Sprintf("\n\n**Health & System Status (10s Avg)**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", avgCPU, avgMem, discordStatus)
+		finalStatus := fmt.Sprintf("\n\n**Health & System Status**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", avgCPU, avgMem, discordStatus)
 		if bootMessage != nil {
 			logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+finalStatus)
 		}
