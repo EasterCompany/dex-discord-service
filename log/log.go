@@ -18,6 +18,7 @@ func Init(s *discordgo.Session, channelID string) {
 	log.Println("Initializing logger...")
 	session = s
 	logChannelID = channelID
+		log.Println("Adding Ready handler")
 	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		log.Println("Discord Ready event received.")
 		log.Println("Discord session is ready.")
