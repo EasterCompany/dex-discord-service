@@ -123,8 +123,28 @@ func main() {
 		var cpuUsages []float64
 		var memUsages []float64
 		startTime := time.Now()
+		var deletedMessages int
 
 		for time.Since(startTime) < 10*time.Second {
+			// Clear channel messages
+			if cfg.Discord.LogChannelID != "" {
+				messages, err := s.ChannelMessages(cfg.Discord.LogChannelID, 100, "", "", "")
+				if err == nil {
+					var messageIDs []string
+					for _, msg := range messages {
+						// Do not delete the boot message
+						if bootMessage != nil && msg.ID == bootMessage.ID {
+							continue
+						}
+						messageIDs = append(messageIDs, msg.ID)
+					}
+					if len(messageIDs) > 0 {
+						s.ChannelMessagesBulkDelete(cfg.Discord.LogChannelID, messageIDs)
+						deletedMessages += len(messageIDs)
+					}
+				}
+			}
+
 			cpuUsage, _ := system.GetCPUUsage()
 			memUsage, _ := system.GetMemoryUsage()
 			cpuUsages = append(cpuUsages, cpuUsage)
@@ -163,7 +183,12 @@ func main() {
 		if health.CheckDiscordConnection(s) != nil {
 			discordStatus = "**FAILED**"
 		}
-		finalStatus := fmt.Sprintf("\n\n**Health & System Status**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", avgCPU, avgMem, discordStatus)
+
+		finalStatus := fmt.Sprintf("\n\n**Health & System Status (10s Avg)**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", avgCPU, avgMem, discordStatus)
+		if deletedMessages > 0 {
+			finalStatus += fmt.Sprintf("\nCleared (%d) logs from channel", deletedMessages)
+		}
+
 		if bootMessage != nil {
 			logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+finalStatus)
 		}
