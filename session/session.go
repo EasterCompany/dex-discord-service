@@ -17,7 +17,7 @@ func NewSession(token string) (*discordgo.Session, error) {
 	// Guilds is for basic server information.
 	// GuildMessages is for receiving messages in channels.
 	// GuildVoiceStates is for tracking who is joining/leaving/speaking in voice channels.
-	s.Identify.Intents = discordgo.IntentGuilds | discordgo.IntentGuildMessages | discordgo.IntentGuildVoiceStates
+	s.Identify.Intents = discordgo.IntentGuilds | discordgo.IntentGuildMessages | discordgo.IntentGuildVoiceStates | discordgo.IntentGuildMembers | discordgo.IntentGuildPresences
 
 	return s, nil
 }
