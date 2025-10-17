@@ -1,39 +1,55 @@
+// eastercompany/dex-discord-interface/main.go
 package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
-	"github.com/owen/dex-discord-interface/events"
-	"github.com/owen/dex-discord-interface/session"
+	"github.com/EasterCompany/dex-discord-interface/config"
+	"github.com/EasterCompany/dex-discord-interface/events"
+	"github.com/EasterCompany/dex-discord-interface/session"
+	"github.com/EasterCompany/dex-discord-interface/stt"
 )
 
 func main() {
-	// Create a new Discord session
-	s, err := session.NewSession("MTQyMzEwNTY0NzcyOTMxMTgwNQ.GJTIqd.s4rThpJeaxybNftuXargrrgcFE9oGJI216mAMQ")
+	// Load configuration from ~/Dexter/config.json
+	cfg, err := config.LoadConfig()
 	if err != nil {
-		fmt.Println("error creating Discord session,", err)
-		return
+		log.Fatalf("Fatal error loading config: %v", err)
 	}
 
-	// Add the message create event handler
+	// Initialize the Google Speech-to-Text service
+	if err := stt.Initialize(cfg.System.Google.CloudAPIKey); err != nil {
+		log.Fatalf("Fatal error initializing STT service: %v", err)
+	}
+	defer stt.Close()
+
+	// Create a new Discord session using the token from the config
+	s, err := session.NewSession(cfg.System.Discord.Token)
+	if err != nil {
+		log.Fatalf("Error creating Discord session: %v", err)
+	}
+
+	// Add event handlers
 	s.AddHandler(events.MessageCreate)
+	s.AddHandler(events.VoiceSpeakingUpdate) // Add handler to map SSRC to UserID
 
 	// Open a websocket connection to Discord and begin listening
 	err = s.Open()
 	if err != nil {
-		fmt.Println("error opening connection,", err)
-		return
+		log.Fatalf("Error opening connection: %v", err)
 	}
 
 	// Wait here until CTRL-C or other term signal is received
 	fmt.Println("Bot is now running. Press CTRL-C to exit.")
 	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt, os.Kill)
+	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
 
 	// Cleanly close down the Discord session
 	s.Close()
+	fmt.Println("\nBot shutting down.")
 }

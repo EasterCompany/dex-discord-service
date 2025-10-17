@@ -3,6 +3,7 @@ package stt
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 
@@ -11,22 +12,42 @@ import (
 	speechpb "google.golang.org/genproto/googleapis/cloud/speech/v1"
 )
 
-// StreamingTranscribe connects to Google's Speech-to-Text API and transcribes an audio stream.
-func StreamingTranscribe(ctx context.Context, reader io.Reader, transcriptChan chan<- string, errChan chan<- error) {
-	// Ensure the channels are closed on function exit to signal completion.
-	defer close(transcriptChan)
-	defer close(errChan)
+var (
+	apiKey       string
+	speechClient *speech.Client
+)
 
-	// IMPORTANT: Replace "YOUR_API_KEY" with your actual Google Cloud API key.
-	// For production, consider using a service account file.
-	client, err := speech.NewClient(ctx, option.WithAPIKey("YOUR_API_KEY"))
+// Initialize sets up the speech-to-text client with the provided API key.
+func Initialize(key string) error {
+	if key == "" {
+		return fmt.Errorf("Google Cloud API key is missing")
+	}
+	apiKey = key
+
+	ctx := context.Background()
+	var err error
+	speechClient, err = speech.NewClient(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
-		errChan <- err
+		return fmt.Errorf("failed to create speech client: %w", err)
+	}
+	return nil
+}
+
+// Close cleans up the speech client connection.
+func Close() {
+	if speechClient != nil {
+		speechClient.Close()
+	}
+}
+
+// StreamingTranscribe performs live speech-to-text on an audio stream.
+func StreamingTranscribe(ctx context.Context, reader io.Reader, transcriptChan chan<- string, errChan chan<- error) {
+	if speechClient == nil {
+		errChan <- fmt.Errorf("STT service not initialized")
 		return
 	}
-	defer client.Close()
 
-	stream, err := client.StreamingRecognize(ctx)
+	stream, err := speechClient.StreamingRecognize(ctx)
 	if err != nil {
 		errChan <- err
 		return
@@ -37,11 +58,11 @@ func StreamingTranscribe(ctx context.Context, reader io.Reader, transcriptChan c
 		StreamingRequest: &speechpb.StreamingRecognizeRequest_StreamingConfig{
 			StreamingConfig: &speechpb.StreamingRecognitionConfig{
 				Config: &speechpb.RecognitionConfig{
-					Encoding:        speechpb.RecognitionConfig_WEBM_OPUS, // Use WEBM_OPUS for Ogg/Opus
+					Encoding:        speechpb.RecognitionConfig_OGG_OPUS,
 					SampleRateHertz: 48000,
 					LanguageCode:    "en-US",
 				},
-				InterimResults: true, // Get live updates
+				InterimResults: true,
 			},
 		},
 	}); err != nil {
@@ -49,59 +70,47 @@ func StreamingTranscribe(ctx context.Context, reader io.Reader, transcriptChan c
 		return
 	}
 
-	// Goroutine to read from the audio pipe and send to Google.
+	// Goroutine to continuously read from the audio pipe and send to Google.
 	go func() {
 		buf := make([]byte, 1024)
 		for {
 			n, err := reader.Read(buf)
-			if n > 0 {
-				if sendErr := stream.Send(&speechpb.StreamingRecognizeRequest{
-					StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
-						AudioContent: buf[:n],
-					},
-				}); sendErr != nil {
-					log.Printf("Could not send audio content: %v", sendErr)
-				}
-			}
 			if err == io.EOF {
-				// The writer has closed the pipe, indicating the user stopped talking.
-				if err := stream.CloseSend(); err != nil {
-					log.Printf("Failed to close send stream: %v", err)
-				}
+				stream.CloseSend()
 				return
 			}
 			if err != nil {
-				log.Printf("Error reading from audio pipe: %v", err)
+				log.Printf("Could not read from audio reader: %v", err)
+				stream.CloseSend() // Close the stream on read error
 				return
+			}
+			if err := stream.Send(&speechpb.StreamingRecognizeRequest{
+				StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
+					AudioContent: buf[:n],
+				},
+			}); err != nil {
+				// Don't report this error if the context was already cancelled.
+				if ctx.Err() == nil {
+					log.Printf("Could not send audio to STT service: %v", err)
+				}
 			}
 		}
 	}()
 
-	// Main loop to receive transcription results from Google.
+	// Goroutine to receive transcripts from Google.
 	for {
 		resp, err := stream.Recv()
 		if err == io.EOF {
-			// The stream has finished.
-			return
+			break
 		}
 		if err != nil {
 			errChan <- err
 			return
 		}
-
-		if len(resp.Results) > 0 {
-			result := resp.Results[0]
-			if len(result.Alternatives) > 0 {
-				transcript := result.Alternatives[0].Transcript
-				if result.IsFinal {
-					// Send the final part of the transcript.
-					transcriptChan <- transcript
-				} else {
-					// Send the interim (in-progress) part.
-					transcriptChan <- transcript
-				}
-			}
+		if len(resp.Results) > 0 && len(resp.Results[0].Alternatives) > 0 {
+			transcriptChan <- resp.Results[0].Alternatives[0].Transcript
 		}
 	}
+	close(transcriptChan)
 }
 

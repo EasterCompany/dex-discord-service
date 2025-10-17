@@ -1,3 +1,4 @@
+// eastercompany/dex-discord-interface/go.mod
 module github.com/EasterCompany/dex-discord-interface
 
 go 1.22.0
@@ -12,7 +13,7 @@ require (
 require (
 	cloud.google.com/go v0.102.1 // indirect
 	cloud.google.com/go/compute v1.7.0 // indirect
-	github.com/golang/groupcache v0.0.0-20200121045136-8c9f03a8e57e // indirect
+	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.2 // indirect
 	github.com/google/go-cmp v0.5.8 // indirect
 	github.com/google/uuid v1.3.0 // indirect
@@ -44,3 +45,5 @@ require (
 	google.golang.org/grpc v1.48.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
 )
+
+replace github.com/EasterCompany/dex-discord-interface => ./
