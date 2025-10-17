@@ -22,7 +22,7 @@ func main() {
 	}
 
 	// Initialize the Google Speech-to-Text service
-	if err := stt.Initialize(cfg.System.Google.CloudAPIKey); err != nil {
+	if err := stt.Initialize(); err != nil {
 		log.Fatalf("Fatal error initializing STT service: %v", err)
 	}
 	defer stt.Close()
@@ -35,7 +35,7 @@ func main() {
 
 	// Add event handlers
 	s.AddHandler(events.MessageCreate)
-	s.AddHandler(events.VoiceSpeakingUpdate) // Add handler to map SSRC to UserID
+	s.AddHandler(events.SpeakingUpdate) // Use the correct handler for speaking updates
 
 	// Open a websocket connection to Discord and begin listening
 	err = s.Open()

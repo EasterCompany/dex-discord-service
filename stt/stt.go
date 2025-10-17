@@ -8,25 +8,18 @@ import (
 	"log"
 
 	speech "cloud.google.com/go/speech/apiv1"
-	"google.golang.org/api/option"
 	speechpb "google.golang.org/genproto/googleapis/cloud/speech/v1"
 )
 
-var (
-	apiKey       string
-	speechClient *speech.Client
-)
+var speechClient *speech.Client
 
-// Initialize sets up the speech-to-text client with the provided API key.
-func Initialize(key string) error {
-	if key == "" {
-		return fmt.Errorf("Google Cloud API key is missing")
-	}
-	apiKey = key
-
-	ctx := context.Background()
+// Initialize creates a new Google Cloud Speech client.
+// It relies on Application Default Credentials for authentication.
+func Initialize() error {
 	var err error
-	speechClient, err = speech.NewClient(ctx, option.WithAPIKey(apiKey))
+	ctx := context.Background()
+	// Create a client without the API key. It will use ADC.
+	speechClient, err = speech.NewClient(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to create speech client: %w", err)
 	}
@@ -40,20 +33,15 @@ func Close() {
 	}
 }
 
-// StreamingTranscribe performs live speech-to-text on an audio stream.
+// StreamingTranscribe processes an audio stream and sends transcripts through a channel.
 func StreamingTranscribe(ctx context.Context, reader io.Reader, transcriptChan chan<- string, errChan chan<- error) {
-	if speechClient == nil {
-		errChan <- fmt.Errorf("STT service not initialized")
-		return
-	}
-
 	stream, err := speechClient.StreamingRecognize(ctx)
 	if err != nil {
-		errChan <- err
+		errChan <- fmt.Errorf("could not start streaming recognize: %w", err)
 		return
 	}
 
-	// Send the initial configuration message.
+	// Send initial configuration
 	if err := stream.Send(&speechpb.StreamingRecognizeRequest{
 		StreamingRequest: &speechpb.StreamingRecognizeRequest_StreamingConfig{
 			StreamingConfig: &speechpb.StreamingRecognitionConfig{
@@ -66,49 +54,55 @@ func StreamingTranscribe(ctx context.Context, reader io.Reader, transcriptChan c
 			},
 		},
 	}); err != nil {
-		errChan <- err
+		errChan <- fmt.Errorf("could not send streaming config: %w", err)
 		return
 	}
 
-	// Goroutine to continuously read from the audio pipe and send to Google.
+	// Goroutine to stream audio content from the reader
 	go func() {
 		buf := make([]byte, 1024)
 		for {
 			n, err := reader.Read(buf)
 			if err == io.EOF {
-				stream.CloseSend()
+				// Signal the end of audio stream
+				if err := stream.CloseSend(); err != nil {
+					log.Printf("Failed to close send stream: %v", err)
+				}
 				return
 			}
 			if err != nil {
-				log.Printf("Could not read from audio reader: %v", err)
-				stream.CloseSend() // Close the stream on read error
+				log.Printf("Error reading from audio pipe: %v", err)
+				errChan <- err
 				return
 			}
-			if err := stream.Send(&speechpb.StreamingRecognizeRequest{
-				StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
-					AudioContent: buf[:n],
-				},
-			}); err != nil {
-				// Don't report this error if the context was already cancelled.
-				if ctx.Err() == nil {
-					log.Printf("Could not send audio to STT service: %v", err)
+
+			if n > 0 {
+				if err := stream.Send(&speechpb.StreamingRecognizeRequest{
+					StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
+						AudioContent: buf[:n],
+					},
+				}); err != nil {
+					log.Printf("Could not send audio content: %v", err)
 				}
 			}
 		}
 	}()
 
-	// Goroutine to receive transcripts from Google.
+	// Goroutine to receive and process transcripts
 	for {
 		resp, err := stream.Recv()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
-			errChan <- err
+			errChan <- fmt.Errorf("cannot stream results: %w", err)
 			return
 		}
-		if len(resp.Results) > 0 && len(resp.Results[0].Alternatives) > 0 {
-			transcriptChan <- resp.Results[0].Alternatives[0].Transcript
+		if len(resp.Results) > 0 {
+			result := resp.Results[0]
+			if len(result.Alternatives) > 0 {
+				transcriptChan <- result.Alternatives[0].Transcript
+			}
 		}
 	}
 	close(transcriptChan)

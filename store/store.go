@@ -1,3 +1,4 @@
+// eastercompany/dex-discord-interface/store/store.go
 package store
 
 import (
@@ -5,56 +6,73 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-func getHomeDir() (string, error) {
+// getDexterDataPath constructs the base path for Dexter's data.
+func getDexterDataPath() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("could not get user home directory: %w", err)
 	}
-	return home, nil
+	return filepath.Join(home, "Dexter", "discord", "server"), nil
 }
 
-// SaveServerMessage saves a message from a server
-func SaveServerMessage(serverName, channelName string, m *discordgo.Message) error {
-	home, err := getHomeDir()
+// SaveMessage saves a message from a server channel to a JSON file.
+func SaveMessage(guildID, channelID string, m *discordgo.Message) error {
+	basePath, err := getDexterDataPath()
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(home, "Dexter/Discord/Servers", serverName, channelName)
+
+	// Construct the full path for the message logs.
+	path := filepath.Join(basePath, guildID, channelID, "messages")
 	if err := os.MkdirAll(path, 0755); err != nil {
-		return err
+		return fmt.Errorf("could not create directory structure %s: %w", path, err)
 	}
 
-	filePath := filepath.Join(path, fmt.Sprintf("%s.json", m.ID))
-
+	// Marshal the message object into a pretty JSON format.
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("could not marshal message to JSON: %w", err)
 	}
 
+	// Write the JSON data to a file named after the message ID.
+	filePath := filepath.Join(path, fmt.Sprintf("%s.json", m.ID))
 	return os.WriteFile(filePath, data, 0644)
 }
 
-// SaveDirectMessage saves a direct message
-func SaveDirectMessage(userID string, m *discordgo.Message) error {
-	home, err := getHomeDir()
+// LogTranscription appends a timestamped transcription to a log file for a specific channel.
+func LogTranscription(guildID, channelID, user, transcription string) error {
+	basePath, err := getDexterDataPath()
 	if err != nil {
 		return err
 	}
-	path := filepath.Join(home, "Dexter/Discord/Users", userID)
+
+	// Construct the full path for the channel.
+	path := filepath.Join(basePath, guildID, channelID)
 	if err := os.MkdirAll(path, 0755); err != nil {
-		return err
+		return fmt.Errorf("could not create directory structure %s: %w", path, err)
 	}
 
-	filePath := filepath.Join(path, fmt.Sprintf("%s.json", m.ID))
-
-	data, err := json.MarshalIndent(m, "", "  ")
+	// Open the transcriptions log file in append mode, creating it if it doesn't exist.
+	filePath := filepath.Join(path, "transcriptions.log")
+	file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return err
+		return fmt.Errorf("could not open transcription log file %s: %w", filePath, err)
+	}
+	defer file.Close()
+
+	// Format the log entry with a timestamp.
+	logEntry := fmt.Sprintf("[%s] %s: %s\n", time.Now().Format(time.RFC3339), user, transcription)
+
+	// Append the new entry to the file.
+	if _, err := file.WriteString(logEntry); err != nil {
+		return fmt.Errorf("could not write to transcription log file: %w", err)
 	}
 
-	return os.WriteFile(filePath, data, 0644)
+	return nil
 }
+

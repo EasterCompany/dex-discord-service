@@ -37,12 +37,13 @@ var (
 	ssrcUserMapMutex sync.Mutex
 )
 
-// VoiceSpeakingUpdate is triggered when a user starts or stops speaking.
-func VoiceSpeakingUpdate(s *discordgo.Session, vs *discordgo.VoiceSpeakingUpdate) {
+// SpeakingUpdate is triggered when a user starts or stops speaking.
+func SpeakingUpdate(s *discordgo.Session, p *discordgo.SpeakingUpdate) {
 	ssrcUserMapMutex.Lock()
 	defer ssrcUserMapMutex.Unlock()
-	if vs.Speaking {
-		ssrcUserMap[uint32(vs.SSRC)] = vs.UserID
+	// Map the SSRC to the UserID when they start speaking.
+	if p.Speaking {
+		ssrcUserMap[uint32(p.SSRC)] = p.UserID
 	}
 }
 
@@ -82,7 +83,7 @@ func joinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 				log.Printf("Error joining voice channel: %v", err)
 				return
 			}
-			go handleVoice(s, m.GuildID, m.ChannelID, vc) // Pass GuildID and the text channel ID
+			go handleVoice(s, m.GuildID, vs.ChannelID, vc) // Pass GuildID and the voice channel ID
 			return
 		}
 	}
@@ -102,7 +103,7 @@ func leaveVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
-func handleVoice(s *discordgo.Session, guildID, textChannelID string, vc *discordgo.VoiceConnection) {
+func handleVoice(s *discordgo.Session, guildID, voiceChannelID string, vc *discordgo.VoiceConnection) {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 	log.Println("Voice handler started. Listening for audio...")
@@ -114,14 +115,14 @@ func handleVoice(s *discordgo.Session, guildID, textChannelID string, vc *discor
 				log.Println("Voice channel OpusRecv channel closed.")
 				return
 			}
-			handleAudioPacket(s, guildID, textChannelID, p)
+			handleAudioPacket(s, guildID, voiceChannelID, p)
 		case <-ticker.C:
 			checkStreamTimeouts()
 		}
 	}
 }
 
-func handleAudioPacket(s *discordgo.Session, guildID, textChannelID string, p *discordgo.Packet) {
+func handleAudioPacket(s *discordgo.Session, guildID, voiceChannelID string, p *discordgo.Packet) {
 	mu.Lock()
 	defer mu.Unlock()
 
@@ -152,7 +153,8 @@ func handleAudioPacket(s *discordgo.Session, guildID, textChannelID string, p *d
 		}
 
 		startTime := time.Now()
-		msg, err := s.ChannelMessageSend(textChannelID, fmt.Sprintf("`%s` started speaking at `%s`", user.Username, startTime.Format("15:04:05 MST")))
+		// A voice channel is its own channel, so we use its ID for messages.
+		msg, err := s.ChannelMessageSend(voiceChannelID, fmt.Sprintf("`%s` started speaking at `%s`", user.Username, startTime.Format("15:04:05 MST")))
 		if err != nil {
 			cancel()
 			pw.Close()
@@ -168,7 +170,7 @@ func handleAudioPacket(s *discordgo.Session, guildID, textChannelID string, p *d
 			user:       user,
 			startTime:  startTime,
 			guildID:    guildID,
-			channelID:  msg.ChannelID, // Use the actual voice text channel ID
+			channelID:  voiceChannelID, // Use the voice channel ID for logging.
 		}
 		activeStreams[p.SSRC] = stream
 
