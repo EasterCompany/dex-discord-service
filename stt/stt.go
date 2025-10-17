@@ -11,31 +11,33 @@ import (
 	speechpb "google.golang.org/genproto/googleapis/cloud/speech/v1"
 )
 
-var speechClient *speech.Client
+// STT is the speech-to-text client
+type STT struct {
+	speechClient *speech.Client
+}
 
-// Initialize creates a new Google Cloud Speech client.
+// New creates a new Google Cloud Speech client.
 // It relies on Application Default Credentials for authentication.
-func Initialize() error {
-	var err error
+func New() (*STT, error) {
 	ctx := context.Background()
 	// Create a client without the API key. It will use ADC.
-	speechClient, err = speech.NewClient(ctx)
+	speechClient, err := speech.NewClient(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to create speech client: %w", err)
+		return nil, fmt.Errorf("failed to create speech client: %w", err)
 	}
-	return nil
+	return &STT{speechClient: speechClient}, nil
 }
 
 // Close cleans up the speech client connection.
-func Close() {
-	if speechClient != nil {
-		speechClient.Close()
+func (s *STT) Close() {
+	if s.speechClient != nil {
+		s.speechClient.Close()
 	}
 }
 
 // StreamingTranscribe processes an audio stream and sends transcripts through a channel.
-func StreamingTranscribe(ctx context.Context, reader io.Reader, transcriptChan chan<- string, errChan chan<- error) {
-	stream, err := speechClient.StreamingRecognize(ctx)
+func (s *STT) StreamingTranscribe(ctx context.Context, reader io.Reader, transcriptChan chan<- string, errChan chan<- error) {
+	stream, err := s.speechClient.StreamingRecognize(ctx)
 	if err != nil {
 		errChan <- fmt.Errorf("could not start streaming recognize: %w", err)
 		return
