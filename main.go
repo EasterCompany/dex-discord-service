@@ -130,9 +130,9 @@ func main() {
 			cpuUsages = append(cpuUsages, cpuUsage)
 			memUsages = append(memUsages, memUsage)
 
-			discordStatus := "✅"
+			discordStatus := "**OK**"
 			if health.CheckDiscordConnection(s) != nil {
-				discordStatus = "❌"
+				discordStatus = "**FAILED**"
 			}
 
 			status := fmt.Sprintf("\n\n**Health & System Status**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", cpuUsage, memUsage, discordStatus)
@@ -159,12 +159,10 @@ func main() {
 			avgMem /= float64(len(memUsages))
 		}
 
-		discordStatus := "✅"
-		if health.CheckDiscordConnection(s) != nil {
-				discordStatus = "❌"
-			}
-
-		finalStatus := fmt.Sprintf("\n\n**Health & System Status (10s Avg)**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", avgCPU, avgMem, discordStatus)
+		discordStatus := "**OK**"
+				if health.CheckDiscordConnection(s) != nil {
+					discordStatus = "**FAILED**"
+				}		finalStatus := fmt.Sprintf("\n\n**Health & System Status (10s Avg)**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", avgCPU, avgMem, discordStatus)
 		if bootMessage != nil {
 			logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+finalStatus)
 		}
