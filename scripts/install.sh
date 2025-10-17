@@ -27,7 +27,7 @@ echo "Creating /root/gcloud directory..."
 mkdir -p /root/gcloud
 
 echo "Copying gcloud credentials to /root/gcloud/credentials.json..."
-cp "$SOURCE_USER_HOME/.config/gcloud/application_default_credentials.json" /root/gcloud/credentials.json
+cp "$SOURCE_USER_HOME/Dexter/config/gcloud.json" /root/gcloud/credentials.json
 chown -R root:root /root/gcloud
 
 echo "Configuration files and executable installed."
