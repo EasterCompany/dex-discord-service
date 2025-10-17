@@ -2,6 +2,9 @@
 
 # This script is intended to be run with sudo.
 
+echo "Stopping the service..."
+systemctl stop dex-discord-interface.service
+
 # --- Executable ---
 echo "Installing executable to /usr/local/bin..."
 cp ./dex-discord-interface /usr/local/bin/dex-discord-interface
