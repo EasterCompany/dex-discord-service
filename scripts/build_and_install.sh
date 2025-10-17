@@ -12,3 +12,4 @@ echo "Cleaning up..."
 rm ./dex-discord-interface
 
 echo "Done."
+
