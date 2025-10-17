@@ -20,7 +20,7 @@ func Init(s *discordgo.Session, channelID string) {
 	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		close(ready)
 	})
-	log.SetOutput(&discordWriter{})	log.SetOutput(&discordWriter{})
+	log.SetOutput(&discordWriter{})
 	
 }
 
