@@ -13,10 +13,7 @@ echo "Creating /root/Dexter/config directory..."
 mkdir -p /root/Dexter/config
 
 echo "Copying Dexter config files to /root/Dexter/config..."
-# The HOME variable will be the home of the user who runs sudo, so it will be /root
-# I need to get the home directory of the user who invoked sudo.
-# The SUDO_USER variable will be set to the username of the user who invoked sudo.
-SOURCE_USER_HOME=$(getent passwd $SUDO_USER | cut -d: -f6)
+SOURCE_USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
 
 cp "$SOURCE_USER_HOME/Dexter/config/discord.json" /root/Dexter/config/discord.json
 cp "$SOURCE_USER_HOME/Dexter/config/redis.json" /root/Dexter/config/redis.json
@@ -33,7 +30,7 @@ chown -R root:root /root/gcloud
 echo "Configuration files and executable installed."
 
 echo "Creating systemd service file..."
-cat <<EOT > /etc/systemd/system/dex-discord-interface.service
+cat <<EOT >/etc/systemd/system/dex-discord-interface.service
 [Unit]
 Description=Dex Discord Interface
 After=network.target
@@ -64,3 +61,4 @@ else
   journalctl -u dex-discord-interface.service
   exit 1
 fi
+
