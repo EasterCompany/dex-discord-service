@@ -155,9 +155,9 @@ func main() {
 				discordStatus = "**FAILED**"
 			}
 
-			status := fmt.Sprintf("\n\n**Health & System Status**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", cpuUsage, memUsage, discordStatus)
+			status := fmt.Sprintf("**Health & System Status**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", cpuUsage, memUsage, discordStatus)
 			if bootMessage != nil {
-				logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+status)
+				logger.UpdateInitialMessage(bootMessage.ID, status)
 			}
 
 			time.Sleep(1 * time.Second) // Update every second for 10 seconds
@@ -184,13 +184,13 @@ func main() {
 			discordStatus = "**FAILED**"
 		}
 
-		finalStatus := fmt.Sprintf("\n\n**Health & System Status**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", avgCPU, avgMem, discordStatus)
+		finalStatus := fmt.Sprintf("**Health & System Status**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", avgCPU, avgMem, discordStatus)
 		if deletedMessages > 0 {
 			finalStatus += fmt.Sprintf("\nCleared: **%d** messages", deletedMessages)
 		}
 
 		if bootMessage != nil {
-			logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+finalStatus)
+			logger.UpdateInitialMessage(bootMessage.ID, finalStatus)
 		}
 	}()
 
