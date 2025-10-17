@@ -184,9 +184,9 @@ func main() {
 			discordStatus = "**FAILED**"
 		}
 
-		finalStatus := fmt.Sprintf("\n\n**Health & System Status (10s Avg)**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", avgCPU, avgMem, discordStatus)
+		finalStatus := fmt.Sprintf("\n\n**Health & System Status**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", avgCPU, avgMem, discordStatus)
 		if deletedMessages > 0 {
-			finalStatus += fmt.Sprintf("\nCleared (%d) logs from channel", deletedMessages)
+			finalStatus += fmt.Sprintf("\nCleared: **%d** messages", deletedMessages)
 		}
 
 		if bootMessage != nil {
