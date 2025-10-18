@@ -46,13 +46,14 @@ func main() {
 	cloudCache, _ := cache.New(cfg.Cache.Cloud) // For health check
 
 	// 5. Create Event Handler with all dependencies
-	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot)
+	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot, s)
 
 	// 6. Register Event Handlers
 	s.AddHandler(eventHandler.Ready)
 	s.AddHandler(eventHandler.MessageCreate)
-	s.AddHandler(eventHandler.SpeakingUpdate)
+	
 
+	s.AddHandler(eventHandler.SpeakingUpdate)
 	// 7. Connect to Discord
 	if err = s.Open(); err != nil {
 		logger.Fatal("Error opening connection to Discord", err)

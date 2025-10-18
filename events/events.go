@@ -36,14 +36,16 @@ type Handler struct {
 	DB         cache.Cache
 	DiscordCfg *config.DiscordConfig
 	BotCfg     *config.BotConfig
+	Session    *discordgo.Session
 }
 
 // NewHandler creates a new event handler with its dependencies.
-func NewHandler(db cache.Cache, discordCfg *config.DiscordConfig, botCfg *config.BotConfig) *Handler {
+func NewHandler(db cache.Cache, discordCfg *config.DiscordConfig, botCfg *config.BotConfig, s *discordgo.Session) *Handler {
 	return &Handler{
 		DB:         db,
 		DiscordCfg: discordCfg,
 		BotCfg:     botCfg,
+		Session:    s,
 	}
 }
 
@@ -116,13 +118,13 @@ func findGuildIDForUser(s *discordgo.Session, userID string) (string, bool) {
 }
 
 // SpeakingUpdate handles users starting to speak.
-func (h *Handler) SpeakingUpdate(s *discordgo.Session, p *discordgo.VoiceSpeakingUpdate) {
-	user, err := s.User(p.UserID)
+func (h *Handler) SpeakingUpdate(vc *discordgo.VoiceConnection, p *discordgo.VoiceSpeakingUpdate) {
+	user, err := h.Session.User(p.UserID)
 	if err != nil {
 		user = &discordgo.User{ID: p.UserID, Username: "Unknown User"}
 	}
 
-	guildID, ok := findGuildIDForUser(s, p.UserID)
+	guildID, ok := findGuildIDForUser(h.Session, p.UserID)
 	if !ok {
 		return
 	}
@@ -150,7 +152,7 @@ func (h *Handler) SpeakingUpdate(s *discordgo.Session, p *discordgo.VoiceSpeakin
 	}
 
 	if h.DiscordCfg.TranscriptionChannelID != "" && logMessage != "" {
-		s.ChannelMessageSend(h.DiscordCfg.TranscriptionChannelID, logMessage)
+		h.Session.ChannelMessageSend(h.DiscordCfg.TranscriptionChannelID, logMessage)
 	}
 }
 
@@ -199,16 +201,22 @@ func (h *Handler) joinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 			if err != nil {
 				logger.Error("Error sending connecting message", err)
 			}
-			vc, err := s.ChannelVoiceJoin(m.GuildID, vs.ChannelID, false, false)
-			if err != nil {
-				logger.Error("Error joining voice channel", err)
-				if msg != nil {
-					s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
-				}
-				return
+			if msg != nil {
+				state.ConnectionMessageID = msg.ID
+				state.ConnectionChannelID = msg.ChannelID
+				state.ConnectionStartTime = time.Now()
 			}
-			go h.handleVoice(s, vc, state, msg)
-			return
+						vc, err := s.ChannelVoiceJoin(m.GuildID, vs.ChannelID, false, false)
+						if err != nil {
+							logger.Error("Error joining voice channel", err)
+							if msg != nil {
+								s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
+							}
+							return
+						}
+						vc.AddHandler(h.SpeakingUpdate)
+												go h.handleVoice(s, vc, state)
+						return
 		}
 	}
 	s.ChannelMessageSend(m.ChannelID, "You need to be in a voice channel for me to join!")
@@ -224,6 +232,16 @@ func (h *Handler) leaveVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 		state := value.(*guild.GuildState)
 		state.Mutex.Lock()
 		defer state.Mutex.Unlock()
+
+		if state.ConnectionMessageID != "" {
+			duration := time.Since(state.ConnectionStartTime).Round(time.Second)
+			originalMessage, err := s.ChannelMessage(state.ConnectionChannelID, state.ConnectionMessageID)
+			if err == nil {
+				editContent := fmt.Sprintf("%s\nDisconnected after %s.", originalMessage.Content, duration)
+				s.ChannelMessageEdit(state.ConnectionChannelID, state.ConnectionMessageID, editContent)
+			}
+		}
+
 		for ssrc, stream := range state.ActiveStreams {
 			stream.OggWriter.Close()
 			delete(state.ActiveStreams, ssrc)
@@ -232,10 +250,10 @@ func (h *Handler) leaveVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 }
 
-func (h *Handler) handleVoice(s *discordgo.Session, vc *discordgo.VoiceConnection, state *guild.GuildState, msg *discordgo.Message) {
+func (h *Handler) handleVoice(s *discordgo.Session, vc *discordgo.VoiceConnection, state *guild.GuildState) {
 	ticker := time.NewTicker(time.Duration(h.BotCfg.VoiceTimeoutSeconds) * time.Second)
 	defer ticker.Stop()
-	if msg != nil {
+	if state.ConnectionMessageID != "" {
 		channel, err := s.Channel(vc.ChannelID)
 		if err != nil {
 			logger.Error("Error getting channel", err)
@@ -244,7 +262,7 @@ func (h *Handler) handleVoice(s *discordgo.Session, vc *discordgo.VoiceConnectio
 			if err != nil {
 				logger.Error("Error getting guild", err)
 			} else {
-				s.ChannelMessageEdit(msg.ChannelID, msg.ID, fmt.Sprintf("Connected to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
+				s.ChannelMessageEdit(state.ConnectionChannelID, state.ConnectionMessageID, fmt.Sprintf("Connected to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
 			}
 		}
 	}
