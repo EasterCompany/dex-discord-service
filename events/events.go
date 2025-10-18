@@ -214,6 +214,7 @@ func (h *Handler) joinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 							}
 							return
 						}
+						state.ConnectionChannelID = vc.ChannelID // Update with actual voice channel ID
 						vc.AddHandler(h.SpeakingUpdate)
 												go h.handleVoice(s, vc, state)
 						return
