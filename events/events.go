@@ -233,15 +233,30 @@ func (h *Handler) leaveVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 		state.Mutex.Lock()
 		defer state.Mutex.Unlock()
 
-		if state.ConnectionMessageID != "" {
-			duration := time.Since(state.ConnectionStartTime).Round(time.Second)
-			originalMessage, err := s.ChannelMessage(state.ConnectionChannelID, state.ConnectionMessageID)
-			if err == nil {
-				editContent := fmt.Sprintf("%s\nDisconnected after %s.", originalMessage.Content, duration)
-				s.ChannelMessageEdit(state.ConnectionChannelID, state.ConnectionMessageID, editContent)
-			}
-		}
-
+					if state.ConnectionMessageID != "" {
+						duration := time.Since(state.ConnectionStartTime).Round(time.Second)
+		
+						channel, err := s.Channel(state.ConnectionChannelID)
+						if err != nil {
+							logger.Error("Error getting channel for disconnection message", err)
+							// Continue without channel info if error
+						}
+						g, err := s.State.Guild(m.GuildID)
+						if err != nil {
+							logger.Error("Error getting guild for disconnection message", err)
+							// Continue without guild info if error
+						}
+		
+						var editContent string
+						if channel != nil && g != nil {
+							editContent = fmt.Sprintf("Disconnected from %s (%s) at %s (%s) after %s.",
+								channel.Name, channel.ID, g.Name, g.ID, duration)
+						} else {
+							editContent = fmt.Sprintf("Disconnected after %s.", duration)
+						}
+		
+						s.ChannelMessageEdit(state.ConnectionChannelID, state.ConnectionMessageID, editContent)
+					}
 		for ssrc, stream := range state.ActiveStreams {
 			stream.OggWriter.Close()
 			delete(state.ActiveStreams, ssrc)
