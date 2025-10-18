@@ -20,15 +20,28 @@ func Init(s *discordgo.Session, channelID string) {
 	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		close(ready)
 	})
-	log.SetOutput(&discordWriter{})
-	
 }
 
 // Post sends a message to the log channel
 func Post(msg string) {
 	if session != nil && logChannelID != "" {
+		// Ensure the message is not too long for Discord
+		if len(msg) > 2000 {
+			msg = msg[:1997] + "..."
+		}
 		session.ChannelMessageSend(logChannelID, msg)
 	}
+}
+
+// Error logs an error to the console and posts it to the Discord log channel.
+func Error(context string, err error) {
+	errorMessage := fmt.Sprintf("❌ **Error** | Context: `%s`\n```\n%v\n```", context, err)
+
+	// Log to console
+	log.Println(errorMessage)
+
+	// Post to Discord
+	Post(errorMessage)
 }
 
 // PostInitialMessage sends an initial message and returns the message object
@@ -45,12 +58,4 @@ func UpdateInitialMessage(messageID, newContent string) {
 	if session != nil && logChannelID != "" {
 		session.ChannelMessageEdit(logChannelID, messageID, newContent)
 	}
-}
-
-// discordWriter is a writer that sends messages to the discord channel
-type discordWriter struct{}
-
-func (w *discordWriter) Write(p []byte) (n int, err error) {
-	Post(string(p))
-	return len(p), nil
 }

@@ -1,4 +1,3 @@
-// eastercompany/dex-discord-interface/go.mod
 module github.com/EasterCompany/dex-discord-interface
 
 go 1.22.0
@@ -8,6 +7,7 @@ require (
 	github.com/bwmarrin/discordgo v0.29.1-0.20250921100450-b2bf06886f03
 	github.com/pion/rtp v1.8.3
 	github.com/pion/webrtc/v3 v3.2.22
+	github.com/stretchr/testify v1.9.0
 	google.golang.org/genproto v0.0.0-20220624142145-8cd45d7dbd1f
 )
 
@@ -15,6 +15,7 @@ require (
 	cloud.google.com/go v0.102.1 // indirect
 	cloud.google.com/go/compute v1.7.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/go-ole/go-ole v1.2.6 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
@@ -26,6 +27,7 @@ require (
 	github.com/joho/godotenv v1.5.1 // indirect
 	github.com/lufia/plan9stats v0.0.0-20211012122336-39d0f177ccd0 // indirect
 	github.com/pion/randutil v0.1.0 // indirect
+	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/power-devops/perfstat v0.0.0-20210106213030-5aafc221ea8c // indirect
 	github.com/redis/go-redis/v9 v9.14.0 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
@@ -43,6 +45,7 @@ require (
 	google.golang.org/appengine v1.6.7 // indirect
 	google.golang.org/grpc v1.48.0 // indirect
 	google.golang.org/protobuf v1.28.1 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
 replace github.com/EasterCompany/dex-discord-interface => ./

@@ -5,15 +5,20 @@ DEXTER_DIR="$HOME/Dexter/config"
 mkdir -p "$DEXTER_DIR"
 
 echo '{
+  "discord_config": "discord.json",
+  "redis_config": "redis.json"
+}' >"$DEXTER_DIR/config.json"
+
+echo '{
   "token": "",
   "log_server_id": "",
   "log_channel_id": "",
   "transcription_channel_id": ""
-}' > "$DEXTER_DIR/discord.json"
+}' >"$DEXTER_DIR/discord.json"
 
 echo '{
   "addr": "localhost:6379"
-}' > "$DEXTER_DIR/redis.json"
+}' >"$DEXTER_DIR/redis.json"
 
 echo '{
   "type": "service_account",
@@ -26,6 +31,6 @@ echo '{
   "token_uri": "https://oauth2.googleapis.com/token",
   "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
   "client_x509_cert_url": "your-client-x509-cert-url"
-}' > "$DEXTER_DIR/gcloud.json"
+}' >"$DEXTER_DIR/gcloud.json"
 
 echo "Boilerplate config files created in $DEXTER_DIR"

@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
+	"sync"
 
 	speech "cloud.google.com/go/speech/apiv1"
 	speechpb "google.golang.org/genproto/googleapis/cloud/speech/v1"
@@ -14,6 +14,14 @@ import (
 // STT is the speech-to-text client
 type STT struct {
 	speechClient *speech.Client
+}
+
+// bufferPool is used to reuse byte slices to reduce memory allocations.
+var bufferPool = sync.Pool{
+	New: func() interface{} {
+		// Create a buffer of 1024 bytes, a common size for audio chunks.
+		return make([]byte, 1024)
+	},
 }
 
 // New creates a new Google Cloud Speech client.
@@ -62,31 +70,37 @@ func (s *STT) StreamingTranscribe(ctx context.Context, reader io.Reader, transcr
 
 	// Goroutine to stream audio content from the reader
 	go func() {
-		buf := make([]byte, 1024)
 		for {
+			// Get a buffer from the pool.
+			buf := bufferPool.Get().([]byte)
+
 			n, err := reader.Read(buf)
-			if err == io.EOF {
-				// Signal the end of audio stream
-				if err := stream.CloseSend(); err != nil {
-					log.Printf("Failed to close send stream: %v", err)
-				}
-				return
-			}
 			if err != nil {
-				log.Printf("Error reading from audio pipe: %v", err)
-				errChan <- err
+				// Ensure the buffer is returned to the pool on any error, including io.EOF.
+				bufferPool.Put(buf)
+				if err == io.EOF {
+					// Cleanly close the stream to signal the end of audio.
+					if closeErr := stream.CloseSend(); closeErr != nil {
+						errChan <- fmt.Errorf("failed to close send stream: %w", closeErr)
+					}
+					return
+				}
+				errChan <- fmt.Errorf("error reading from audio pipe: %w", err)
 				return
 			}
 
 			if n > 0 {
-				if err := stream.Send(&speechpb.StreamingRecognizeRequest{
+				if sendErr := stream.Send(&speechpb.StreamingRecognizeRequest{
 					StreamingRequest: &speechpb.StreamingRecognizeRequest_AudioContent{
 						AudioContent: buf[:n],
 					},
-				}); err != nil {
-					log.Printf("Could not send audio content: %v", err)
+				}); sendErr != nil {
+					errChan <- fmt.Errorf("could not send audio content: %w", sendErr)
 				}
 			}
+
+			// Return the buffer to the pool for reuse.
+			bufferPool.Put(buf)
 		}
 	}()
 
@@ -109,4 +123,3 @@ func (s *STT) StreamingTranscribe(ctx context.Context, reader io.Reader, transcr
 	}
 	close(transcriptChan)
 }
-

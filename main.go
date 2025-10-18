@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"runtime"
 	"strings"
 	"syscall"
 	"time"
@@ -18,6 +19,7 @@ import (
 	"github.com/EasterCompany/dex-discord-interface/store"
 	"github.com/EasterCompany/dex-discord-interface/stt"
 	"github.com/EasterCompany/dex-discord-interface/system"
+	"github.com/EasterCompany/dex-discord-interface/worker"
 )
 
 func main() {
@@ -39,18 +41,15 @@ func main() {
 	// Open a websocket connection to Discord and begin listening
 	err = s.Open()
 	if err != nil {
-		log.Fatalf("Error opening connection: %v", err)
+		logger.Error("opening discord connection", err)
+		os.Exit(1)
 	}
-
-	// Initialize the logger
-	logger.Init(s, cfg.Discord.LogChannelID)
 
 	// Initial boot message
 	bootMessage, err := logger.PostInitialMessage("Initiating bot instance...")
 	if err != nil {
+		// Don't use the custom logger here, as it might be the source of the error.
 		log.Printf("Error posting initial message: %v", err)
-		// If we can't post the initial message, we can't update it either.
-		// So, we'll just proceed without updating the boot message.
 		bootMessage = nil
 	}
 
@@ -61,7 +60,8 @@ func main() {
 	// Initialize the database
 	db, err := database.New(cfg.Redis.Addr)
 	if err != nil {
-		log.Fatalf("Fatal error initializing database: %v", err)
+		logger.Error("initializing database", err)
+		os.Exit(1)
 	}
 	if bootMessage != nil {
 		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Database initialized")
@@ -69,7 +69,7 @@ func main() {
 
 	// Clean up old file-based storage
 	if err := store.Cleanup(); err != nil {
-		log.Printf("Error cleaning up old storage: %v", err)
+		logger.Error("cleaning up old storage", err)
 	}
 	if bootMessage != nil {
 		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Old storage cleaned up")
@@ -78,30 +78,41 @@ func main() {
 	// Load all guild states from the database
 	guildIDs, err := db.GetAllGuildIDs()
 	if err != nil {
-		log.Printf("Error getting all guild IDs: %v", err)
-	}
-	if bootMessage != nil {
-		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Guild states loaded")
-	}
-
-	for _, guildIDKey := range guildIDs {
-		guildID := strings.Split(strings.Split(guildIDKey, ":")[1], ":")[0]
-		state, err := db.LoadGuildState(guildID)
-		if err != nil {
-			log.Printf("Error loading guild state for guild %s: %v", guildID, err)
-			continue
+		logger.Error("getting all guild IDs", err)
+	} else {
+		if bootMessage != nil {
+			logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Guild states loaded")
 		}
-		events.LoadGuildState(guildID, state)
+
+		for _, guildIDKey := range guildIDs {
+			guildID := strings.Split(strings.Split(guildIDKey, ":")[1], ":")[0]
+			state, err := db.LoadGuildState(guildID)
+			if err != nil {
+				logger.Error(fmt.Sprintf("loading guild state for guild %s", guildID), err)
+				continue
+			}
+			events.LoadGuildState(guildID, state)
+		}
 	}
 
 	// Initialize the Google Speech-to-Text service
 	sttClient, err := stt.New()
 	if err != nil {
-		log.Fatalf("Fatal error initializing STT service: %v", err)
+		logger.Error("initializing STT service", err)
+		os.Exit(1)
 	}
 	defer sttClient.Close()
 	if bootMessage != nil {
 		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ STT service initialized")
+	}
+
+	// Initialize and start the worker pool
+	// We'll use number of CPU cores as the number of workers and a queue size of 100.
+	workerPool := worker.New(runtime.NumCPU(), 100)
+	workerPool.Start()
+
+	if bootMessage != nil {
+		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Transcription worker pool started")
 	}
 
 	if bootMessage != nil {
@@ -109,7 +120,7 @@ func main() {
 	}
 
 	// Initialize the events module with the database and stt clients
-	events.Init(db, sttClient, cfg.Discord)
+	events.Init(db, sttClient, cfg.Discord, workerPool)
 
 	// Add event handlers
 	s.AddHandler(events.MessageCreate)
@@ -129,7 +140,9 @@ func main() {
 			// Clear channel messages
 			if cfg.Discord.LogChannelID != "" {
 				messages, err := s.ChannelMessages(cfg.Discord.LogChannelID, 100, "", "", "")
-				if err == nil {
+				if err != nil {
+					logger.Error("clearing log channel messages", err)
+				} else {
 					var messageIDs []string
 					for _, msg := range messages {
 						// Do not delete the boot message
@@ -139,20 +152,30 @@ func main() {
 						messageIDs = append(messageIDs, msg.ID)
 					}
 					if len(messageIDs) > 0 {
-						s.ChannelMessagesBulkDelete(cfg.Discord.LogChannelID, messageIDs)
-						deletedMessages += len(messageIDs)
+						if err := s.ChannelMessagesBulkDelete(cfg.Discord.LogChannelID, messageIDs); err != nil {
+							logger.Error("bulk deleting log channel messages", err)
+						} else {
+							deletedMessages += len(messageIDs)
+						}
 					}
 				}
 			}
 
-			cpuUsage, _ := system.GetCPUUsage()
-			memUsage, _ := system.GetMemoryUsage()
+			cpuUsage, err := system.GetCPUUsage()
+			if err != nil {
+				logger.Error("getting CPU usage", err)
+			}
+			memUsage, err := system.GetMemoryUsage()
+			if err != nil {
+				logger.Error("getting Memory usage", err)
+			}
 			cpuUsages = append(cpuUsages, cpuUsage)
 			memUsages = append(memUsages, memUsage)
 
 			discordStatus := "**OK**"
-			if health.CheckDiscordConnection(s) != nil {
+			if err := health.CheckDiscordConnection(s); err != nil {
 				discordStatus = "**FAILED**"
+				logger.Error("checking discord connection", err)
 			}
 
 			status := fmt.Sprintf("**Health & System Status**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", cpuUsage, memUsage, discordStatus)
@@ -180,7 +203,7 @@ func main() {
 		}
 
 		discordStatus := "**OK**"
-		if health.CheckDiscordConnection(s) != nil {
+		if err := health.CheckDiscordConnection(s); err != nil {
 			discordStatus = "**FAILED**"
 		}
 

@@ -18,6 +18,7 @@ mkdir -p /root/Dexter/config
 echo "Copying Dexter config files to /root/Dexter/config..."
 SOURCE_USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
 
+cp "$SOURCE_USER_HOME/Dexter/config/config.json" /root/Dexter/config/config.json
 cp "$SOURCE_USER_HOME/Dexter/config/discord.json" /root/Dexter/config/discord.json
 cp "$SOURCE_USER_HOME/Dexter/config/redis.json" /root/Dexter/config/redis.json
 chown -R root:root /root/Dexter/config
@@ -64,4 +65,3 @@ else
   journalctl -u dex-discord-interface.service
   exit 1
 fi
-

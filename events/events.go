@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"log"
 	"strings"
 	"sync"
 	"time"
@@ -12,61 +11,41 @@ import (
 	"github.com/EasterCompany/dex-discord-interface/config"
 	"github.com/EasterCompany/dex-discord-interface/guild"
 	"github.com/EasterCompany/dex-discord-interface/interfaces"
+	logger "github.com/EasterCompany/dex-discord-interface/log"
+	"github.com/EasterCompany/dex-discord-interface/worker"
 	"github.com/bwmarrin/discordgo"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 )
 
 var (
-	db          interfaces.Database
-	stt         interfaces.STT
-	discordCfg  *config.DiscordConfig
-	guildStates sync.Map
+	db                    interfaces.Database
+	stt                   interfaces.STT
+	discordCfg            *config.DiscordConfig
+	guildStates           sync.Map
 	channelHistoryFetched = make(map[string]bool)
 	historyMutex          sync.Mutex
+	wp                    *worker.WorkerPool
+	// rtpPacketPool is used to reuse rtp.Packet objects to reduce memory allocations.
+	rtpPacketPool = sync.Pool{
+		New: func() interface{} {
+			return &rtp.Packet{}
+		},
+	}
 )
 
 // Init initializes the events module with the database, stt clients and discord config
-func Init(database interfaces.Database, sttClient interfaces.STT, cfg *config.DiscordConfig) {
+func Init(database interfaces.Database, sttClient interfaces.STT, cfg *config.DiscordConfig, workerPool *worker.WorkerPool) {
 	db = database
 	stt = sttClient
 	discordCfg = cfg
+	wp = workerPool
 }
 
 // LoadGuildState loads a guild state into the events module
 func LoadGuildState(guildID string, state *guild.GuildState) {
 	guildStates.Store(guildID, state)
 }
-
-/*
-// SpeakingUpdate is triggered when a user starts or stops speaking.
-func SpeakingUpdate(s *discordgo.Session, p *discordgo.VoiceSpeakingUpdate) {
-	// Find the guild the user is in
-	for _, g := range s.State.Guilds {
-		for _, vs := range g.VoiceStates {
-			if vs.UserID == p.UserID {
-				value, ok := guildStates.Load(g.ID)
-				if !ok {
-					// Guild state not initialized yet, should be created by joinVoice
-					return
-				}
-				state := value.(*guild.GuildState)
-
-				state.Mutex.Lock()
-				defer state.Mutex.Unlock()
-
-				if p.Speaking {
-					state.SSRCUserMap[uint32(p.SSRC)] = p.UserID
-					if err := db.SaveGuildState(g.ID, state); err != nil {
-						log.Printf("Error saving guild state for guild %s: %v", g.ID, err)
-					}
-				}
-				return
-			}
-		}
-	}
-}
-*/
 
 // MessageCreate handles incoming messages, routes commands, and logs messages.
 func MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -77,7 +56,7 @@ func MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Log all messages from guilds
 	if m.GuildID != "" {
 		if err := db.SaveMessage(m.GuildID, m.ChannelID, m.Message); err != nil {
-			log.Printf("Error saving message %s: %v", m.ID, err)
+			logger.Error(fmt.Sprintf("saving message %s", m.ID), err)
 		}
 	}
 
@@ -98,15 +77,13 @@ func fetchAndSaveChannelHistory(s *discordgo.Session, guildID, channelID string)
 	}
 	historyMutex.Unlock()
 
-	log.Printf("Starting history fetch for channel %s", channelID)
-
 	var allMessages []*discordgo.Message
 	lastID := ""
 
 	for {
 		messages, err := s.ChannelMessages(channelID, 50, lastID, "", "")
 		if err != nil {
-			log.Printf("Error fetching messages for channel %s: %v", channelID, err)
+			logger.Error(fmt.Sprintf("fetching messages for channel %s", channelID), err)
 			return
 		}
 
@@ -127,21 +104,19 @@ func fetchAndSaveChannelHistory(s *discordgo.Session, guildID, channelID string)
 	}
 
 	if err := db.SaveMessageHistory(guildID, channelID, allMessages); err != nil {
-		log.Printf("Error saving message history for channel %s: %v", channelID, err)
+		logger.Error(fmt.Sprintf("saving message history for channel %s", channelID), err)
 		return
 	}
 
 	historyMutex.Lock()
 	channelHistoryFetched[channelID] = true
 	historyMutex.Unlock()
-
-	log.Printf("Successfully fetched and saved history for channel %s", channelID)
 }
 
 func joinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 	g, err := s.State.Guild(m.GuildID)
 	if err != nil {
-		log.Printf("Error getting guild: %v", err)
+		logger.Error("getting guild", err)
 		return
 	}
 
@@ -153,15 +128,14 @@ func joinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 			value, _ := guildStates.LoadOrStore(m.GuildID, guild.NewGuildState())
 			state := value.(*guild.GuildState)
 			if err := db.SaveGuildState(m.GuildID, state); err != nil {
-				log.Printf("Error saving guild state for guild %s: %v", m.GuildID, err)
+				logger.Error(fmt.Sprintf("saving guild state for guild %s", m.GuildID), err)
 			}
 
 			vc, err := s.ChannelVoiceJoin(m.GuildID, vs.ChannelID, false, true)
 			if err != nil {
-				log.Printf("Error joining voice channel: %v", err)
+				logger.Error("joining voice channel", err)
 				return
 			}
-			// s.AddHandler(SpeakingUpdate)
 			go handleVoice(s, m.GuildID, vs.ChannelID, vc) // Pass GuildID and the voice channel ID
 			return
 		}
@@ -193,20 +167,18 @@ func leaveVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 func handleVoice(s *discordgo.Session, guildID, voiceChannelID string, vc *discordgo.VoiceConnection) {
 	value, ok := guildStates.Load(guildID)
 	if !ok {
-		log.Printf("Error: guild state not found for guild %s", guildID)
+		logger.Error(fmt.Sprintf("guild state not found for guild %s", guildID), fmt.Errorf("state not found in sync.Map"))
 		return
 	}
 	state := value.(*guild.GuildState)
 
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	log.Println("Voice handler started. Listening for audio...")
 
 	for {
 		select {
 		case p, ok := <-vc.OpusRecv:
 			if !ok {
-				log.Println("Voice channel OpusRecv channel closed.")
 				return
 			}
 			handleAudioPacket(s, guildID, voiceChannelID, p, state)
@@ -224,7 +196,10 @@ func handleAudioPacket(s *discordgo.Session, guildID, voiceChannelID string, p *
 	if !ok {
 		userID, userOk := state.SSRCUserMap[p.SSRC]
 		if !userOk {
-			return // We don't know who this is yet, wait for a SpeakingUpdate.
+			// A user's audio packet can arrive before their speaking update.
+			// We will temporarily map the SSRC to a placeholder, and update it
+			// once the speaking update arrives.
+			return
 		}
 
 		pr, pw := io.Pipe()
@@ -232,7 +207,7 @@ func handleAudioPacket(s *discordgo.Session, guildID, voiceChannelID string, p *
 
 		oggWriter, err := oggwriter.NewWith(pw, 48000, 2)
 		if err != nil {
-			log.Printf("Failed to create Ogg writer for SSRC %d: %v", p.SSRC, err)
+			logger.Error(fmt.Sprintf("creating Ogg writer for SSRC %d", p.SSRC), err)
 			cancel()
 			pw.CloseWithError(err)
 			return
@@ -246,6 +221,7 @@ func handleAudioPacket(s *discordgo.Session, guildID, voiceChannelID string, p *
 		startTime := time.Now()
 		msg, err := s.ChannelMessageSend(discordCfg.TranscriptionChannelID, fmt.Sprintf("`%s` started speaking at `%s`", user.Username, startTime.Format("15:04:05 MST")))
 		if err != nil {
+			logger.Error("sending initial transcription message", err)
 			cancel()
 			pw.Close()
 			return
@@ -264,22 +240,36 @@ func handleAudioPacket(s *discordgo.Session, guildID, voiceChannelID string, p *
 		}
 		state.ActiveStreams[p.SSRC] = stream
 
-		go transcribeStream(ctx, s, pr, stream)
+		job := worker.TranscriptionJob{
+			Ctx:     ctx,
+			Session: s,
+			Reader:  pr,
+			Stream:  stream,
+			DB:      db,
+			STT:     stt,
+		}
+		wp.Submit(job)
 	}
 
 	stream.LastPacket = time.Now()
-	rtpPacket := &rtp.Packet{
-		Header: rtp.Header{
-			Version:        2,
-			PayloadType:    0x78,
-			SequenceNumber: p.Sequence,
-			Timestamp:      p.Timestamp,
-			SSRC:           p.SSRC,
-		},
-		Payload: p.Opus,
+
+	// Get a packet from the pool to reuse it.
+	rtpPacket := rtpPacketPool.Get().(*rtp.Packet)
+	// Defer putting the packet back in the pool until the function returns.
+	defer rtpPacketPool.Put(rtpPacket)
+
+	// Populate the packet with the new data.
+	rtpPacket.Header = rtp.Header{
+		Version:        2,
+		PayloadType:    0x78,
+		SequenceNumber: p.Sequence,
+		Timestamp:      p.Timestamp,
+		SSRC:           p.SSRC,
 	}
+	rtpPacket.Payload = p.Opus
+
 	if err := stream.OggWriter.WriteRTP(rtpPacket); err != nil {
-		log.Printf("Error writing RTP packet for SSRC %d: %v", p.SSRC, err)
+		logger.Error(fmt.Sprintf("writing RTP packet for SSRC %d", p.SSRC), err)
 	}
 }
 
@@ -289,51 +279,9 @@ func checkStreamTimeouts(state *guild.GuildState) {
 
 	for ssrc, stream := range state.ActiveStreams {
 		if time.Since(stream.LastPacket) > 2*time.Second {
-			log.Printf("User %s timed out. Closing stream.", stream.User.Username)
 			stream.Writer.Close()
 			stream.CancelFunc()
 			delete(state.ActiveStreams, ssrc)
-		}
-	}
-}
-
-func transcribeStream(ctx context.Context, s *discordgo.Session, reader io.Reader, stream *guild.UserStream) {
-	transcriptChan := make(chan string)
-	errChan := make(chan error, 1)
-
-	go stt.StreamingTranscribe(ctx, reader, transcriptChan, errChan)
-
-	var finalTranscript strings.Builder
-	for {
-		select {
-		case transcript, ok := <-transcriptChan:
-			if !ok {
-				stopTime := time.Now()
-				finalTranscriptStr := strings.TrimSpace(finalTranscript.String())
-
-				if finalTranscriptStr != "" {
-					if err := db.LogTranscription(stream.GuildID, stream.ChannelID, stream.User.Username, finalTranscriptStr); err != nil {
-						log.Printf("Error logging transcription for user %s: %v", stream.User.Username, err)
-					}
-				}
-
-				finalContent := fmt.Sprintf("**%s:** %s\n*(`%s` to `%s`)*", stream.User.Username, finalTranscriptStr, stream.StartTime.Format("15:04:05"), stopTime.Format("15:04:05 MST"))
-				s.ChannelMessageEdit(stream.Message.ChannelID, stream.Message.ID, finalContent)
-				return
-			}
-			finalTranscript.WriteString(transcript)
-			interimContent := fmt.Sprintf("`%s:` %s...", stream.User.Username, finalTranscript.String())
-			if len(interimContent) > 2000 {
-				interimContent = interimContent[:1997] + "..."
-			}
-			s.ChannelMessageEdit(stream.Message.ChannelID, stream.Message.ID, interimContent)
-
-		case err := <-errChan:
-			log.Printf("Transcription error for user %s: %v", stream.User.Username, err)
-			s.ChannelMessageEdit(stream.Message.ChannelID, stream.Message.ID, fmt.Sprintf("Error during transcription for `%s`.", stream.User.Username))
-			return
-		case <-ctx.Done():
-			return
 		}
 	}
 }
