@@ -7,7 +7,8 @@ mkdir -p "$DEXTER_DIR"
 echo '{
   "token": "",
   "log_server_id": "",
-  "log_channel_id": ""
+  "log_channel_id": "",
+  "transcription_channel_id": ""
 }' > "$DEXTER_DIR/discord.json"
 
 echo '{

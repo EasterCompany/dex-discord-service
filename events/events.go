@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/EasterCompany/dex-discord-interface/config"
 	"github.com/EasterCompany/dex-discord-interface/guild"
 	"github.com/EasterCompany/dex-discord-interface/interfaces"
 	"github.com/bwmarrin/discordgo"
@@ -17,17 +18,19 @@ import (
 )
 
 var (
-	db                    interfaces.Database
-	stt                   interfaces.STT
-	guildStates           sync.Map
+	db          interfaces.Database
+	stt         interfaces.STT
+	discordCfg  *config.DiscordConfig
+	guildStates sync.Map
 	channelHistoryFetched = make(map[string]bool)
 	historyMutex          sync.Mutex
 )
 
-// Init initializes the events module with the database and stt clients
-func Init(database interfaces.Database, sttClient interfaces.STT) {
+// Init initializes the events module with the database, stt clients and discord config
+func Init(database interfaces.Database, sttClient interfaces.STT, cfg *config.DiscordConfig) {
 	db = database
 	stt = sttClient
+	discordCfg = cfg
 }
 
 // LoadGuildState loads a guild state into the events module
@@ -241,7 +244,7 @@ func handleAudioPacket(s *discordgo.Session, guildID, voiceChannelID string, p *
 		}
 
 		startTime := time.Now()
-		msg, err := s.ChannelMessageSend(voiceChannelID, fmt.Sprintf("`%s` started speaking at `%s`", user.Username, startTime.Format("15:04:05 MST")))
+		msg, err := s.ChannelMessageSend(discordCfg.TranscriptionChannelID, fmt.Sprintf("`%s` started speaking at `%s`", user.Username, startTime.Format("15:04:05 MST")))
 		if err != nil {
 			cancel()
 			pw.Close()

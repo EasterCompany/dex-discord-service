@@ -10,9 +10,10 @@ import (
 )
 
 type DiscordConfig struct {
-	Token        string `json:"token"`
-	LogServerID  string `json:"log_server_id"`
-	LogChannelID string `json:"log_channel_id"`
+	Token                  string `json:"token"`
+	LogServerID            string `json:"log_server_id"`
+	LogChannelID           string `json:"log_channel_id"`
+	TranscriptionChannelID string `json:"transcription_channel_id"`
 }
 
 type RedisConfig struct {
@@ -50,7 +51,7 @@ func LoadAllConfigs() (*AllConfig, error) {
 
 func loadDiscordConfig(path string) (*DiscordConfig, error) {
 	config := &DiscordConfig{}
-	return config, loadOrCreate(path, config, &DiscordConfig{Token: "", LogServerID: "", LogChannelID: ""})
+	return config, loadOrCreate(path, config, &DiscordConfig{Token: "", LogServerID: "", LogChannelID: "", TranscriptionChannelID: ""})
 }
 
 func loadRedisConfig(path string) (*RedisConfig, error) {

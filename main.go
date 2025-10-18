@@ -109,7 +109,7 @@ func main() {
 	}
 
 	// Initialize the events module with the database and stt clients
-	events.Init(db, sttClient)
+	events.Init(db, sttClient, cfg.Discord)
 
 	// Add event handlers
 	s.AddHandler(events.MessageCreate)
