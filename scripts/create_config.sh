@@ -4,33 +4,35 @@ DEXTER_DIR="$HOME/Dexter/config"
 
 mkdir -p "$DEXTER_DIR"
 
+# Main config that points to the others
 echo '{
   "discord_config": "discord.json",
-  "redis_config": "redis.json"
+  "cache_config": "cache.json"
 }' >"$DEXTER_DIR/config.json"
 
+# Discord specific config
 echo '{
   "token": "",
-  "log_server_id": "",
+  "home_server_id": "",
   "log_channel_id": "",
-  "transcription_channel_id": ""
+  "transcription_channel_id": "",
+  "audio_ttl_days": 7
 }' >"$DEXTER_DIR/discord.json"
 
+# Cache specific config
 echo '{
-  "addr": "localhost:6379"
-}' >"$DEXTER_DIR/redis.json"
-
-echo '{
-  "type": "service_account",
-  "project_id": "your-project-id",
-  "private_key_id": "your-private-key-id",
-  "private_key": "-----BEGIN PRIVATE KEY-----\\n...\\n-----END PRIVATE KEY-----\\n",
-  "client_email": "your-client-email",
-  "client_id": "your-client-id",
-  "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-  "token_uri": "https://oauth2.googleapis.com/token",
-  "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-  "client_x509_cert_url": "your-client-x509-cert-url"
-}' >"$DEXTER_DIR/gcloud.json"
+  "local": {
+    "addr": "localhost:6379",
+    "username": "",
+    "password": "",
+    "db": 0
+  },
+  "cloud": {
+    "addr": "",
+    "username": "",
+    "password": "",
+    "db": 0
+  }
+}' >"$DEXTER_DIR/cache.json"
 
 echo "Boilerplate config files created in $DEXTER_DIR"

@@ -5,60 +5,102 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
+
+	logger "github.com/EasterCompany/dex-discord-interface/log"
 )
 
+// MainConfig points to the other config files.
 type MainConfig struct {
-	DiscordConfig string `json:"discord_config"`
-	RedisConfig   string `json:"redis_config"`
+	DiscordConfigPath string `json:"discord_config"`
+	CacheConfigPath   string `json:"cache_config"`
 }
 
+// DiscordConfig holds all discord-related configuration.
 type DiscordConfig struct {
 	Token                  string `json:"token"`
-	LogServerID            string `json:"log_server_id"`
+	HomeServerID           string `json:"home_server_id"`
 	LogChannelID           string `json:"log_channel_id"`
 	TranscriptionChannelID string `json:"transcription_channel_id"`
+	AudioTTLDays           int    `json:"audio_ttl_days"`
 }
 
-type RedisConfig struct {
-	Addr string `json:"addr"`
+// CacheConfig holds the configurations for cache connections.
+type CacheConfig struct {
+	Local *ConnectionConfig `json:"local"`
+	Cloud *ConnectionConfig `json:"cloud"`
 }
 
+// ConnectionConfig holds the details for a single cache connection.
+type ConnectionConfig struct {
+	Addr     string `json:"addr"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+	DB       int    `json:"db"`
+}
+
+// AllConfig holds all configuration for the application.
 type AllConfig struct {
 	Discord *DiscordConfig
-	Redis   *RedisConfig
+	Cache   *CacheConfig
+}
+
+func getConfigPath(filename string) (string, error) {
+	if strings.HasPrefix(filename, "/") {
+		return filename, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("could not get user home directory: %w", err)
+	}
+	return filepath.Join(home, "Dexter", "config", filename), nil
 }
 
 func LoadAllConfigs() (*AllConfig, error) {
-	home, err := os.UserHomeDir()
+	mainConfigPath, err := getConfigPath("config.json")
 	if err != nil {
-		return nil, fmt.Errorf("could not get user home directory: %w", err)
+		return nil, err
 	}
-	dexterPath := filepath.Join(home, "Dexter", "config")
-	mainConfigPath := filepath.Join(dexterPath, "config.json")
 
-	mainCfg := &MainConfig{}
-	if err := loadOrCreate(mainConfigPath, mainCfg, &MainConfig{
-		DiscordConfig: "discord.json",
-		RedisConfig:   "redis.json",
+	mainConfig := &MainConfig{}
+	if err := loadOrCreate(mainConfigPath, mainConfig, &MainConfig{
+		DiscordConfigPath: "discord.json",
+		CacheConfigPath:   "cache.json",
 	}); err != nil {
 		return nil, fmt.Errorf("could not load main config: %w", err)
 	}
 
+	discordConfigPath, err := getConfigPath(mainConfig.DiscordConfigPath)
+	if err != nil {
+		return nil, err
+	}
 	discordConfig := &DiscordConfig{}
-	discordPath := filepath.Join(dexterPath, mainCfg.DiscordConfig)
-	if err := loadOrCreate(discordPath, discordConfig, &DiscordConfig{Token: "", LogServerID: "", LogChannelID: "", TranscriptionChannelID: ""}); err != nil {
+	if err := loadOrCreate(discordConfigPath, discordConfig, &DiscordConfig{
+		Token:                  "",
+		HomeServerID:           "",
+		LogChannelID:           "",
+		TranscriptionChannelID: "",
+		AudioTTLDays:           7, // Default to a 7-day TTL for audio files
+	}); err != nil {
 		return nil, fmt.Errorf("could not load discord config: %w", err)
 	}
 
-	redisConfig := &RedisConfig{}
-	redisPath := filepath.Join(dexterPath, mainCfg.RedisConfig)
-	if err := loadOrCreate(redisPath, redisConfig, &RedisConfig{Addr: "localhost:6379"}); err != nil {
-		return nil, fmt.Errorf("could not load redis config: %w", err)
+	cacheConfigPath, err := getConfigPath(mainConfig.CacheConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	cacheConfig := &CacheConfig{}
+	if err := loadOrCreate(cacheConfigPath, cacheConfig, &CacheConfig{
+		Local: &ConnectionConfig{Addr: "localhost:6379", Username: "", Password: "", DB: 0},
+		Cloud: &ConnectionConfig{Addr: "", Username: "", Password: "", DB: 0},
+	}); err != nil {
+		return nil, fmt.Errorf("could not load cache config: %w", err)
 	}
 
 	return &AllConfig{
 		Discord: discordConfig,
-		Redis:   redisConfig,
+		Cache:   cacheConfig,
 	}, nil
 }
 
@@ -66,47 +108,35 @@ func loadOrCreate(path string, v interface{}, defaultConfig interface{}) error {
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// File doesn't exist, so create it with default values.
-			fmt.Printf("Config file not found at %s. Creating a default one.\n", path)
-			if err := createDefaultConfig(path, defaultConfig); err != nil {
-				return err
+			logger.Post(fmt.Sprintf("Config file not found at `%s`. Creating a default one.", path))
+			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+				return fmt.Errorf("could not create directory for config file at %s: %w", path, err)
 			}
-			// Re-open the file we just created.
-			file, err = os.Open(path)
-			if err != nil {
-				return fmt.Errorf("could not open newly created config file at %s: %w", path, err)
-			}
-		} else {
-			// Another error occurred (e.g., permissions).
-			return fmt.Errorf("could not open config file at %s: %w", path, err)
+			return createDefaultConfig(path, defaultConfig)
 		}
+		return fmt.Errorf("could not open config file at %s: %w", path, err)
 	}
 	defer file.Close()
 
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(v); err != nil {
-		return fmt.Errorf("could not decode config file at %s: %w", path, err)
+		backupPath := path + ".bak." + time.Now().Format("20060102150405")
+		logger.Post(fmt.Sprintf("Failed to decode config `%s`, it might be outdated. Backing up to `%s` and creating a new default.", path, backupPath))
+		if err := os.Rename(path, backupPath); err != nil {
+			return fmt.Errorf("failed to backup outdated config at %s: %w", path, err)
+		}
+		return createDefaultConfig(path, defaultConfig)
 	}
-
 	return nil
 }
 
 func createDefaultConfig(path string, defaultConfig interface{}) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("could not create directory for config file at %s: %w", path, err)
-	}
-
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("could not create config file at %s: %w", path, err)
 	}
 	defer file.Close()
-
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
-	if err := encoder.Encode(defaultConfig); err != nil {
-		return fmt.Errorf("could not encode default config to %s: %w", path, err)
-	}
-
-	return nil
+	return encoder.Encode(defaultConfig)
 }

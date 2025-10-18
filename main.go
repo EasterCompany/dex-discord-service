@@ -5,225 +5,168 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"runtime"
 	"strings"
+	"sync"
 	"syscall"
-	"time"
 
+	"github.com/EasterCompany/dex-discord-interface/cache"
+	"github.com/EasterCompany/dex-discord-interface/cleanup"
 	"github.com/EasterCompany/dex-discord-interface/config"
-	"github.com/EasterCompany/dex-discord-interface/database"
 	"github.com/EasterCompany/dex-discord-interface/events"
 	"github.com/EasterCompany/dex-discord-interface/health"
 	logger "github.com/EasterCompany/dex-discord-interface/log"
 	"github.com/EasterCompany/dex-discord-interface/session"
-	"github.com/EasterCompany/dex-discord-interface/store"
-	"github.com/EasterCompany/dex-discord-interface/stt"
 	"github.com/EasterCompany/dex-discord-interface/system"
-	"github.com/EasterCompany/dex-discord-interface/worker"
+	"github.com/bwmarrin/discordgo"
 )
 
 func main() {
-	// Load configuration
+	// 1. Load Configuration
 	cfg, err := config.LoadAllConfigs()
 	if err != nil {
 		log.Fatalf("Fatal error loading config: %v", err)
 	}
 
-	// Create a new Discord session using the token from the config
+	// 2. Initialize Discord Session
 	s, err := session.NewSession(cfg.Discord.Token)
 	if err != nil {
 		log.Fatalf("Error creating Discord session: %v", err)
 	}
 
-	// Initialize the logger
+	// 3. Initialize Logger
 	logger.Init(s, cfg.Discord.LogChannelID)
 
-	// Open a websocket connection to Discord and begin listening
-	err = s.Open()
-	if err != nil {
-		logger.Error("opening discord connection", err)
-		os.Exit(1)
+	// 4. Connect to Discord
+	if err = s.Open(); err != nil {
+		logger.Fatal("Error opening connection to Discord", err)
 	}
 
-	// Initial boot message
-	bootMessage, err := logger.PostInitialMessage("Initiating bot instance...")
+	// 5. Post Initial Boot Message
+	bootMessage, err := logger.PostInitialMessage("`Dexter` is starting up...")
 	if err != nil {
-		// Don't use the custom logger here, as it might be the source of the error.
-		log.Printf("Error posting initial message: %v", err)
-		bootMessage = nil
+		logger.Error("Failed to post initial boot message", err)
 	}
-
+	bootMessageID := ""
 	if bootMessage != nil {
-		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Config loaded")
+		bootMessageID = bootMessage.ID
 	}
-
-	// Initialize the database
-	db, err := database.New(cfg.Redis.Addr)
-	if err != nil {
-		logger.Error("initializing database", err)
-		os.Exit(1)
-	}
-	if bootMessage != nil {
-		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Database initialized")
-	}
-
-	// Clean up old file-based storage
-	if err := store.Cleanup(); err != nil {
-		logger.Error("cleaning up old storage", err)
-	}
-	if bootMessage != nil {
-		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Old storage cleaned up")
-	}
-
-	// Load all guild states from the database
-	guildIDs, err := db.GetAllGuildIDs()
-	if err != nil {
-		logger.Error("getting all guild IDs", err)
-	} else {
+	updateBootMessage := func(content string) {
 		if bootMessage != nil {
-			logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Guild states loaded")
-		}
-
-		for _, guildIDKey := range guildIDs {
-			guildID := strings.Split(strings.Split(guildIDKey, ":")[1], ":")[0]
-			state, err := db.LoadGuildState(guildID)
-			if err != nil {
-				logger.Error(fmt.Sprintf("loading guild state for guild %s", guildID), err)
-				continue
-			}
-			events.LoadGuildState(guildID, state)
+			logger.UpdateInitialMessage(bootMessageID, content)
 		}
 	}
 
-	// Initialize the Google Speech-to-Text service
-	sttClient, err := stt.New()
+	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established")
+
+	// 6. Initialize Cache Services
+	localCache, err := cache.New(cfg.Cache.Local)
 	if err != nil {
-		logger.Error("initializing STT service", err)
-		os.Exit(1)
+		logger.Error("Failed to initialize local cache", err)
 	}
-	defer sttClient.Close()
-	if bootMessage != nil {
-		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ STT service initialized")
-	}
+	cloudCache, _ := cache.New(cfg.Cache.Cloud) // Initialized for health check, but not used in core logic
+	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized")
 
-	// Initialize and start the worker pool
-	// We'll use number of CPU cores as the number of workers and a queue size of 100.
-	workerPool := worker.New(runtime.NumCPU(), 100)
-	workerPool.Start()
+	// 7. Perform Boot-time Cleanup
+	performCleanup(s, localCache, cfg.Discord, bootMessageID)
+	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete")
 
-	if bootMessage != nil {
-		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Transcription worker pool started")
-	}
-
-	if bootMessage != nil {
-		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Discord session created")
-	}
-
-	// Initialize the events module with the database and stt clients
-	events.Init(db, sttClient, cfg.Discord, workerPool)
-
-	// Add event handlers
-	s.AddHandler(events.MessageCreate)
-
-	if bootMessage != nil {
-		logger.UpdateInitialMessage(bootMessage.ID, bootMessage.Content+"\n✅ Websocket connection opened")
-	}
-
-	// Health and system checks
-	go func() {
-		var cpuUsages []float64
-		var memUsages []float64
-		startTime := time.Now()
-		var deletedMessages int
-
-		for time.Since(startTime) < 10*time.Second {
-			// Clear channel messages
-			if cfg.Discord.LogChannelID != "" {
-				messages, err := s.ChannelMessages(cfg.Discord.LogChannelID, 100, "", "", "")
+	// 8. Load Persistent State (e.g., Guild States)
+	if localCache != nil {
+		guildIDs, err := localCache.GetAllGuildIDs()
+		if err != nil {
+			logger.Error("Error getting all guild IDs", err)
+		} else {
+			for _, guildID := range guildIDs {
+				state, err := localCache.LoadGuildState(guildID)
 				if err != nil {
-					logger.Error("clearing log channel messages", err)
-				} else {
-					var messageIDs []string
-					for _, msg := range messages {
-						// Do not delete the boot message
-						if bootMessage != nil && msg.ID == bootMessage.ID {
-							continue
-						}
-						messageIDs = append(messageIDs, msg.ID)
-					}
-					if len(messageIDs) > 0 {
-						if err := s.ChannelMessagesBulkDelete(cfg.Discord.LogChannelID, messageIDs); err != nil {
-							logger.Error("bulk deleting log channel messages", err)
-						} else {
-							deletedMessages += len(messageIDs)
-						}
-					}
+					logger.Error(fmt.Sprintf("Error loading guild state for guild %s", guildID), err)
+					continue
 				}
+				events.LoadGuildState(guildID, state)
 			}
-
-			cpuUsage, err := system.GetCPUUsage()
-			if err != nil {
-				logger.Error("getting CPU usage", err)
-			}
-			memUsage, err := system.GetMemoryUsage()
-			if err != nil {
-				logger.Error("getting Memory usage", err)
-			}
-			cpuUsages = append(cpuUsages, cpuUsage)
-			memUsages = append(memUsages, memUsage)
-
-			discordStatus := "**OK**"
-			if err := health.CheckDiscordConnection(s); err != nil {
-				discordStatus = "**FAILED**"
-				logger.Error("checking discord connection", err)
-			}
-
-			status := fmt.Sprintf("**Health & System Status**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", cpuUsage, memUsage, discordStatus)
-			if bootMessage != nil {
-				logger.UpdateInitialMessage(bootMessage.ID, status)
-			}
-
-			time.Sleep(1 * time.Second) // Update every second for 10 seconds
 		}
+	}
+	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete\n✅ Guild states loaded")
 
-		avgCPU := 0.0
-		if len(cpuUsages) > 0 {
-			for _, u := range cpuUsages {
-				avgCPU += u
-			}
-			avgCPU /= float64(len(cpuUsages))
-		}
+	// 9. Initialize Event Handlers
+	events.Init(localCache, cfg.Discord)
+	s.AddHandler(events.Ready)
+	s.AddHandler(events.MessageCreate)
+	s.AddHandler(events.SpeakingUpdate)
 
-		avgMem := 0.0
-		if len(memUsages) > 0 {
-			for _, u := range memUsages {
-				avgMem += u
-			}
-			avgMem /= float64(len(memUsages))
-		}
+	// 10. Final Health Check and Ready Message
+	performHealthCheck(s, localCache, cloudCache, cfg, bootMessageID)
 
-		discordStatus := "**OK**"
-		if err := health.CheckDiscordConnection(s); err != nil {
-			discordStatus = "**FAILED**"
-		}
-
-		finalStatus := fmt.Sprintf("**Health & System Status**\nCPU: %.2f%%\nMemory: %.2f%%\nDiscord: %s", avgCPU, avgMem, discordStatus)
-		if deletedMessages > 0 {
-			finalStatus += fmt.Sprintf("\nCleared: **%d** messages", deletedMessages)
-		}
-
-		if bootMessage != nil {
-			logger.UpdateInitialMessage(bootMessage.ID, finalStatus)
-		}
-	}()
-
-	// Wait here until CTRL-C or other term signal is received
+	// 11. Wait for shutdown signal
 	fmt.Println("Bot is now running. Press CTRL-C to exit.")
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
 
-	// Cleanly close down the Discord session
+	// Cleanly close down
 	s.Close()
 	fmt.Println("\nBot shutting down.")
+}
+
+// performCleanup runs all boot-time cleanup tasks.
+func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *config.DiscordConfig, bootMessageID string) {
+	var wg sync.WaitGroup
+	cleanupResults := make(chan cleanup.Result, 3)
+	var cleanedAudioCount int64
+
+	if localCache != nil {
+		var audioErr error
+		cleanedAudioCount, audioErr = localCache.CleanAllAudio()
+		if audioErr != nil {
+			logger.Error("Error cleaning up orphaned audio data from cache", audioErr)
+		}
+	}
+
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		cleanupResults <- cleanup.ClearChannel(s, discordCfg.LogChannelID, bootMessageID)
+	}()
+	go func() {
+		defer wg.Done()
+		cleanupResults <- cleanup.ClearChannel(s, discordCfg.TranscriptionChannelID, "")
+	}()
+	go func() {
+		defer wg.Done()
+		cleanupResults <- cleanup.CleanStaleMessages(s, discordCfg.TranscriptionChannelID)
+	}()
+	wg.Wait()
+	close(cleanupResults)
+
+	// Process results for logging, though not displayed in final message anymore for simplicity.
+	cleanupStats := make(map[string]int)
+	for result := range cleanupResults {
+		cleanupStats[result.Name] += result.Count
+	}
+	log.Printf("Cleanup complete: %+v, audio files: %d", cleanupStats, cleanedAudioCount)
+}
+
+// performHealthCheck runs final system checks and posts the final status message.
+func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache, cfg *config.AllConfig, bootMessageID string) {
+	cpuUsage, _ := system.GetCPUUsage()
+	memUsage, _ := system.GetMemoryUsage()
+	discordStatus := health.GetDiscordStatus(s)
+	localCacheStatus := health.GetCacheStatus(localCache, cfg.Cache.Local)
+	cloudCacheStatus := health.GetCacheStatus(cloudCache, cfg.Cache.Cloud)
+
+	statusFields := []string{
+		"**System Status**",
+		fmt.Sprintf("💻 CPU: `%.2f%%`", cpuUsage),
+		fmt.Sprintf("🧠 Memory: `%.2f%%`", memUsage),
+		"",
+		"**Service Status**",
+		fmt.Sprintf("🤖 Discord: %s", discordStatus),
+		fmt.Sprintf("🏠 Local Cache: %s", localCacheStatus),
+		fmt.Sprintf("☁️ Cloud Cache: %s", cloudCacheStatus),
+	}
+
+	finalStatus := strings.Join(statusFields, "\n")
+	if bootMessageID != "" {
+		logger.UpdateInitialMessage(bootMessageID, finalStatus)
+	}
 }

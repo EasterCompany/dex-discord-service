@@ -1,9 +1,7 @@
-// eastercompany/dex-discord-interface/guild/userstream.go
 package guild
 
 import (
-	"context"
-	"io"
+	"bytes"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -12,13 +10,11 @@ import (
 
 // UserStream holds the state for a single user's audio stream.
 type UserStream struct {
-	Writer     io.Closer
 	OggWriter  *oggwriter.OggWriter
-	CancelFunc context.CancelFunc
+	Buffer     *bytes.Buffer
 	LastPacket time.Time
 	Message    *discordgo.Message
 	User       *discordgo.User
 	StartTime  time.Time
-	GuildID    string
-	ChannelID  string
+	Filename   string
 }
