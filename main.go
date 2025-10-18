@@ -37,18 +37,28 @@ func main() {
 	// 3. Initialize Logger
 	logger.Init(s, cfg.Discord.LogChannelID)
 
-	// 4. Register Event Handlers (before connecting)
-	events.Init(nil, cfg.Discord) // Initial init for handlers
-	s.AddHandler(events.Ready)
-	s.AddHandler(events.MessageCreate)
-	s.AddHandler(events.SpeakingUpdate)
+	// 4. Initialize Cache Service (before handlers)
+	localCache, err := cache.New(cfg.Cache.Local)
+	if err != nil {
+		// Log the error but don't exit; the bot can run without a cache in a degraded state.
+		logger.Error("Failed to initialize local cache", err)
+	}
+	cloudCache, _ := cache.New(cfg.Cache.Cloud) // For health check
 
-	// 5. Connect to Discord
+	// 5. Create Event Handler with all dependencies
+	eventHandler := events.NewHandler(localCache, cfg.Discord)
+
+	// 6. Register Event Handlers
+	s.AddHandler(eventHandler.Ready)
+	s.AddHandler(eventHandler.MessageCreate)
+	s.AddHandler(eventHandler.SpeakingUpdate)
+
+	// 7. Connect to Discord
 	if err = s.Open(); err != nil {
 		logger.Fatal("Error opening connection to Discord", err)
 	}
 
-	// 6. Post Initial Boot Message
+	// 8. Post Initial Boot Message (this will now work correctly)
 	bootMessage, err := logger.PostInitialMessage("`Dexter` is starting up...")
 	if err != nil {
 		logger.Error("Failed to post initial boot message", err)
@@ -62,24 +72,13 @@ func main() {
 			logger.UpdateInitialMessage(bootMessageID, content)
 		}
 	}
-	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established")
-
-	// 7. Initialize Cache Service
-	localCache, err := cache.New(cfg.Cache.Local)
-	if err != nil {
-		logger.Error("Failed to initialize local cache", err)
-	}
-	cloudCache, _ := cache.New(cfg.Cache.Cloud)
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized")
 
-	// 8. Pass Cache to Event Handlers
-	events.Init(localCache, cfg.Discord)
-
-	// 9. Perform Boot-time Cleanup and get results
+	// 9. Perform Boot-time Cleanup
 	cleanupReport := performCleanup(s, localCache, cfg.Discord, bootMessageID)
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete")
 
-	// 10. Load Persistent State (e.g., Guild States)
+	// 10. Load Persistent State
 	if localCache != nil {
 		guildIDs, err := localCache.GetAllGuildIDs()
 		if err != nil {
