@@ -35,6 +35,7 @@ func LoadGuildState(guildID string, state *guild.GuildState) {
 	guildStates.Store(guildID, state)
 }
 
+/*
 // SpeakingUpdate is triggered when a user starts or stops speaking.
 func SpeakingUpdate(s *discordgo.Session, p *discordgo.VoiceSpeakingUpdate) {
 	// Find the guild the user is in
@@ -62,6 +63,7 @@ func SpeakingUpdate(s *discordgo.Session, p *discordgo.VoiceSpeakingUpdate) {
 		}
 	}
 }
+*/
 
 // MessageCreate handles incoming messages, routes commands, and logs messages.
 func MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -156,7 +158,7 @@ func joinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 				log.Printf("Error joining voice channel: %v", err)
 				return
 			}
-			s.AddHandler(SpeakingUpdate)
+			// s.AddHandler(SpeakingUpdate)
 			go handleVoice(s, m.GuildID, vs.ChannelID, vc) // Pass GuildID and the voice channel ID
 			return
 		}
