@@ -174,7 +174,7 @@ func (h *Handler) joinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 					logger.Error(fmt.Sprintf("Error saving guild state for guild %s", m.GuildID), err)
 				}
 			}
-			vc, err := s.ChannelVoiceJoin(m.GuildID, vs.ChannelID, false, true)
+			vc, err := s.ChannelVoiceJoin(m.GuildID, vs.ChannelID, false, false)
 			if err != nil {
 				logger.Error("Error joining voice channel", err)
 				return
