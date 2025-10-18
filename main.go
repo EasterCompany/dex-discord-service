@@ -49,7 +49,7 @@ func main() {
 	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot)
 
 	// 6. Register Event Handlers
-	// s.AddHandler(eventHandler.Ready)
+	s.AddHandler(eventHandler.Ready)
 	s.AddHandler(eventHandler.MessageCreate)
 	// s.AddHandler(eventHandler.SpeakingUpdate)
 
