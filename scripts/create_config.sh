@@ -16,7 +16,7 @@ echo '{
   "home_server_id": "",
   "log_channel_id": "",
   "transcription_channel_id": "",
-  "audio_ttl_days": 7
+  "audio_ttl_minutes": 10
 }' >"$DEXTER_DIR/discord.json"
 
 # Cache specific config

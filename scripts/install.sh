@@ -7,6 +7,10 @@ systemctl stop dex-discord-interface.service
 
 # --- Executable ---
 echo "Installing executable to /usr/local/bin..."
+if [ ! -f ./dex-discord-interface ]; then
+  echo "Error: executable not found. Please run the build script first."
+  exit 1
+fi
 cp ./dex-discord-interface /usr/local/bin/dex-discord-interface
 chown root:root /usr/local/bin/dex-discord-interface
 chmod 755 /usr/local/bin/dex-discord-interface
@@ -20,16 +24,8 @@ SOURCE_USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
 
 cp "$SOURCE_USER_HOME/Dexter/config/config.json" /root/Dexter/config/config.json
 cp "$SOURCE_USER_HOME/Dexter/config/discord.json" /root/Dexter/config/discord.json
-cp "$SOURCE_USER_HOME/Dexter/config/redis.json" /root/Dexter/config/redis.json
+cp "$SOURCE_USER_HOME/Dexter/config/cache.json" /root/Dexter/config/cache.json
 chown -R root:root /root/Dexter/config
-
-# --- gcloud Config ---
-echo "Creating /root/gcloud directory..."
-mkdir -p /root/gcloud
-
-echo "Copying gcloud credentials to /root/gcloud/credentials.json..."
-cp "$SOURCE_USER_HOME/Dexter/config/gcloud.json" /root/gcloud/credentials.json
-chown -R root:root /root/gcloud
 
 echo "Configuration files and executable installed."
 
@@ -45,7 +41,6 @@ Group=root
 WorkingDirectory=/usr/local/bin
 ExecStart=/usr/local/bin/dex-discord-interface
 Restart=always
-Environment="GOOGLE_APPLICATION_CREDENTIALS=/root/gcloud/credentials.json"
 
 [Install]
 WantedBy=multi-user.target

@@ -65,14 +65,12 @@ func Ready(s *discordgo.Session, r *discordgo.Ready) {
 			}
 		}
 	}
-	channels, err := s.UserChannels()
-	if err != nil {
-		logger.Error("Failed to get user (private) channels", err)
-	} else {
-		for _, c := range channels {
-			go fetchAndStoreLast50Messages(s, "", c.ID)
-		}
+
+	// Correctly access private channels from the Ready event struct.
+	for _, c := range r.PrivateChannels {
+		go fetchAndStoreLast50Messages(s, "", c.ID)
 	}
+
 	logger.Post("Initial message sync process initiated.")
 }
 
@@ -85,6 +83,7 @@ func fetchAndStoreLast50Messages(s *discordgo.Session, guildID, channelID string
 		logger.Error(fmt.Sprintf("Failed to fetch messages for channel %s", channelID), err)
 		return
 	}
+	// Reverse messages to store them in chronological order
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 		messages[i], messages[j] = messages[j], messages[i]
 	}
@@ -272,7 +271,7 @@ func checkStreamTimeouts(s *discordgo.Session, state *guild.GuildState) {
 			stream.OggWriter.Close()
 			if db != nil {
 				key := GenerateAudioCacheKey(stream.Filename)
-				ttl := time.Duration(discordCfg.AudioTTLDays) * 24 * time.Hour
+				ttl := time.Duration(discordCfg.AudioTTLMinutes) * time.Minute
 				if err := db.SaveAudio(key, stream.Buffer.Bytes(), ttl); err != nil {
 					logger.Error(fmt.Sprintf("Failed to save audio to cache for key %s", key), err)
 				}

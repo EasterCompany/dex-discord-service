@@ -1,82 +1,73 @@
 package cleanup
 
 import (
-	"fmt"
 	"strings"
-	"time"
 
-	logger "github.com/EasterCompany/dex-discord-interface/log"
 	"github.com/bwmarrin/discordgo"
 )
 
-// Result holds the outcome of a cleanup task.
 type Result struct {
-	Name        string
-	Count       int
-	Description string
+	Name  string
+	Count int
 }
 
-// ClearChannel fetches and deletes up to 100 messages from a channel.
-func ClearChannel(s *discordgo.Session, channelID string, ignoreMessageID string) Result {
-	res := Result{Name: "ClearChannel", Description: fmt.Sprintf("ch: %s", channelID)}
+// ClearChannel removes all messages from a channel, except for a specified message to ignore.
+func ClearChannel(s *discordgo.Session, channelID, ignoreMessageID string) Result {
 	if channelID == "" {
-		return res
+		return Result{Name: "ClearChannelSkipped", Count: 0}
 	}
-
 	messages, err := s.ChannelMessages(channelID, 100, "", "", "")
 	if err != nil {
-		logger.Error(fmt.Sprintf("Could not fetch messages from channel %s to clear them", channelID), err)
-		return res
+		return Result{Name: "ClearChannelFailed", Count: 0}
 	}
 
 	var messageIDs []string
 	for _, msg := range messages {
-		if ignoreMessageID != "" && msg.ID == ignoreMessageID {
-			continue
+		if msg.ID != ignoreMessageID {
+			messageIDs = append(messageIDs, msg.ID)
 		}
-		// Discord API does not allow bulk deleting messages older than 2 weeks
-		if time.Since(msg.Timestamp) > 14*24*time.Hour {
-			continue
-		}
-		messageIDs = append(messageIDs, msg.ID)
 	}
 
 	if len(messageIDs) == 0 {
-		return res
+		return Result{Name: "ClearChannelEmpty", Count: 0}
 	}
 
-	if err := s.ChannelMessagesBulkDelete(channelID, messageIDs); err != nil {
-		logger.Error(fmt.Sprintf("Could not bulk delete messages from channel %s", channelID), err)
+	err = s.ChannelMessagesBulkDelete(channelID, messageIDs)
+	if err != nil {
+		// Fallback for older messages
+		for _, id := range messageIDs {
+			s.ChannelMessageDelete(channelID, id)
+		}
+	}
+
+	var resultName string
+	if channelID == "1423328325778149438" { // TODO: Avoid hardcoding
+		resultName = "ClearLogs"
 	} else {
-		res.Count = len(messageIDs)
+		resultName = "ClearTranscriptions"
 	}
-
-	return res
+	return Result{Name: resultName, Count: len(messageIDs)}
 }
 
-// CleanStaleMessages finds and updates messages from a previous session.
+// CleanStaleMessages updates any of the bot's messages that were left in a pending state.
 func CleanStaleMessages(s *discordgo.Session, channelID string) Result {
-	res := Result{Name: "CleanStaleMessages"}
 	if channelID == "" {
-		return res
+		return Result{Name: "CleanStaleSkipped", Count: 0}
 	}
 	messages, err := s.ChannelMessages(channelID, 100, "", "", "")
 	if err != nil {
-		logger.Error("Could not fetch messages to clean stale ones", err)
-		return res
+		return Result{Name: "CleanStaleFailed", Count: 0}
 	}
 
+	count := 0
 	for _, msg := range messages {
 		if msg.Author.ID == s.State.User.ID {
 			if strings.Contains(msg.Content, "[speaking...]") || strings.Contains(msg.Content, "[awaiting transcription]") {
-				newContent := fmt.Sprintf("`%s` **%s**: ⚫ [interrupted by restart]", time.Now().Format("15:04:05"), msg.Author.Username)
-				_, err := s.ChannelMessageEdit(channelID, msg.ID, newContent)
-				if err == nil {
-					res.Count++
-				}
-				time.Sleep(300 * time.Millisecond) // Be respectful of rate limits
+				newContent := strings.Split(msg.Content, "|")[0] + "| `Status: Interrupted (bot restarted)`"
+				s.ChannelMessageEdit(channelID, msg.ID, newContent)
+				count++
 			}
 		}
 	}
-	return res
+	return Result{Name: "CleanStaleMessages", Count: count}
 }

@@ -23,7 +23,7 @@ type DiscordConfig struct {
 	HomeServerID           string `json:"home_server_id"`
 	LogChannelID           string `json:"log_channel_id"`
 	TranscriptionChannelID string `json:"transcription_channel_id"`
-	AudioTTLDays           int    `json:"audio_ttl_days"`
+	AudioTTLMinutes        int    `json:"audio_ttl_minutes"`
 }
 
 // CacheConfig holds the configurations for cache connections.
@@ -81,7 +81,7 @@ func LoadAllConfigs() (*AllConfig, error) {
 		HomeServerID:           "",
 		LogChannelID:           "",
 		TranscriptionChannelID: "",
-		AudioTTLDays:           7, // Default to a 7-day TTL for audio files
+		AudioTTLMinutes:        10, // Default to a 10-minute TTL for audio files
 	}); err != nil {
 		return nil, fmt.Errorf("could not load discord config: %w", err)
 	}

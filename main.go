@@ -20,6 +20,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+// main orchestrates the bot's startup, operation, and graceful shutdown.
 func main() {
 	// 1. Load Configuration
 	cfg, err := config.LoadAllConfigs()
@@ -36,12 +37,18 @@ func main() {
 	// 3. Initialize Logger
 	logger.Init(s, cfg.Discord.LogChannelID)
 
-	// 4. Connect to Discord
+	// 4. Register Event Handlers (before connecting)
+	events.Init(nil, cfg.Discord) // Initial init for handlers
+	s.AddHandler(events.Ready)
+	s.AddHandler(events.MessageCreate)
+	s.AddHandler(events.SpeakingUpdate)
+
+	// 5. Connect to Discord
 	if err = s.Open(); err != nil {
 		logger.Fatal("Error opening connection to Discord", err)
 	}
 
-	// 5. Post Initial Boot Message
+	// 6. Post Initial Boot Message
 	bootMessage, err := logger.PostInitialMessage("`Dexter` is starting up...")
 	if err != nil {
 		logger.Error("Failed to post initial boot message", err)
@@ -55,22 +62,24 @@ func main() {
 			logger.UpdateInitialMessage(bootMessageID, content)
 		}
 	}
-
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established")
 
-	// 6. Initialize Cache Services
+	// 7. Initialize Cache Service
 	localCache, err := cache.New(cfg.Cache.Local)
 	if err != nil {
 		logger.Error("Failed to initialize local cache", err)
 	}
-	cloudCache, _ := cache.New(cfg.Cache.Cloud) // Initialized for health check, but not used in core logic
+	cloudCache, _ := cache.New(cfg.Cache.Cloud)
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized")
 
-	// 7. Perform Boot-time Cleanup
-	performCleanup(s, localCache, cfg.Discord, bootMessageID)
+	// 8. Pass Cache to Event Handlers
+	events.Init(localCache, cfg.Discord)
+
+	// 9. Perform Boot-time Cleanup and get results
+	cleanupReport := performCleanup(s, localCache, cfg.Discord, bootMessageID)
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete")
 
-	// 8. Load Persistent State (e.g., Guild States)
+	// 10. Load Persistent State (e.g., Guild States)
 	if localCache != nil {
 		guildIDs, err := localCache.GetAllGuildIDs()
 		if err != nil {
@@ -88,16 +97,10 @@ func main() {
 	}
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete\n✅ Guild states loaded")
 
-	// 9. Initialize Event Handlers
-	events.Init(localCache, cfg.Discord)
-	s.AddHandler(events.Ready)
-	s.AddHandler(events.MessageCreate)
-	s.AddHandler(events.SpeakingUpdate)
+	// 11. Final Health Check and Ready Message
+	performHealthCheck(s, localCache, cloudCache, cfg, bootMessageID, cleanupReport)
 
-	// 10. Final Health Check and Ready Message
-	performHealthCheck(s, localCache, cloudCache, cfg, bootMessageID)
-
-	// 11. Wait for shutdown signal
+	// 12. Wait for shutdown signal
 	fmt.Println("Bot is now running. Press CTRL-C to exit.")
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
@@ -108,46 +111,57 @@ func main() {
 	fmt.Println("\nBot shutting down.")
 }
 
-// performCleanup runs all boot-time cleanup tasks.
-func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *config.DiscordConfig, bootMessageID string) {
+// humanReadableBytes converts a size in bytes to a human-readable string.
+func humanReadableBytes(b int64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := int64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
+}
+
+// performCleanup runs all boot-time cleanup tasks and returns a formatted report.
+func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *config.DiscordConfig, bootMessageID string) string {
 	var wg sync.WaitGroup
-	cleanupResults := make(chan cleanup.Result, 3)
-	var cleanedAudioCount int64
+	results := make(chan cleanup.Result, 3)
+
+	var audioCleanResult cache.CleanResult
+	var messageCleanResult cache.CleanResult
 
 	if localCache != nil {
-		var audioErr error
-		cleanedAudioCount, audioErr = localCache.CleanAllAudio()
-		if audioErr != nil {
-			logger.Error("Error cleaning up orphaned audio data from cache", audioErr)
-		}
+		audioCleanResult, _ = localCache.CleanAllAudio()
+		messageCleanResult, _ = localCache.CleanAllMessages()
 	}
 
 	wg.Add(3)
-	go func() {
-		defer wg.Done()
-		cleanupResults <- cleanup.ClearChannel(s, discordCfg.LogChannelID, bootMessageID)
-	}()
-	go func() {
-		defer wg.Done()
-		cleanupResults <- cleanup.ClearChannel(s, discordCfg.TranscriptionChannelID, "")
-	}()
-	go func() {
-		defer wg.Done()
-		cleanupResults <- cleanup.CleanStaleMessages(s, discordCfg.TranscriptionChannelID)
-	}()
+	go func() { defer wg.Done(); results <- cleanup.ClearChannel(s, discordCfg.LogChannelID, bootMessageID) }()
+	go func() { defer wg.Done(); results <- cleanup.ClearChannel(s, discordCfg.TranscriptionChannelID, "") }()
+	go func() { defer wg.Done(); results <- cleanup.CleanStaleMessages(s, discordCfg.TranscriptionChannelID) }()
 	wg.Wait()
-	close(cleanupResults)
+	close(results)
 
-	// Process results for logging, though not displayed in final message anymore for simplicity.
 	cleanupStats := make(map[string]int)
-	for result := range cleanupResults {
+	for result := range results {
 		cleanupStats[result.Name] += result.Count
 	}
-	log.Printf("Cleanup complete: %+v, audio files: %d", cleanupStats, cleanedAudioCount)
+
+	reportFields := []string{
+		"**House Keeping**",
+		fmt.Sprintf("🧹 Logs Channel: `%d` logs removed.", cleanupStats["ClearLogs"]),
+		fmt.Sprintf("🧹 Transcriptions Channel: `%d` transcriptions removed.", cleanupStats["ClearTranscriptions"]+cleanupStats["CleanStaleMessages"]),
+		fmt.Sprintf("🧹 Audio Cache: `%s` (%d values) freed.", humanReadableBytes(audioCleanResult.BytesFreed), audioCleanResult.Count),
+		fmt.Sprintf("🧹 Message Cache: `%s` (%d values) freed.", humanReadableBytes(messageCleanResult.BytesFreed), messageCleanResult.Count),
+	}
+	return strings.Join(reportFields, "\n")
 }
 
 // performHealthCheck runs final system checks and posts the final status message.
-func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache, cfg *config.AllConfig, bootMessageID string) {
+func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache, cfg *config.AllConfig, bootMessageID, cleanupReport string) {
 	cpuUsage, _ := system.GetCPUUsage()
 	memUsage, _ := system.GetMemoryUsage()
 	discordStatus := health.GetDiscordStatus(s)
@@ -163,6 +177,8 @@ func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache
 		fmt.Sprintf("🤖 Discord: %s", discordStatus),
 		fmt.Sprintf("🏠 Local Cache: %s", localCacheStatus),
 		fmt.Sprintf("☁️ Cloud Cache: %s", cloudCacheStatus),
+		"",
+		cleanupReport,
 	}
 
 	finalStatus := strings.Join(statusFields, "\n")

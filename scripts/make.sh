@@ -1,6 +1,7 @@
 #!/bin/bash
 
-# This script builds and installs the application.
+echo "Verifying the application..."
+./scripts/verify.sh
 
 echo "Building the application..."
 ./scripts/build.sh
@@ -12,4 +13,3 @@ echo "Cleaning up..."
 rm ./dex-discord-interface
 
 echo "Done."
-
