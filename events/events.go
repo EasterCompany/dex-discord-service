@@ -203,7 +203,7 @@ func (h *Handler) joinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 			}
 			if msg != nil {
 				state.ConnectionMessageID = msg.ID
-				state.ConnectionChannelID = msg.ChannelID
+				state.ConnectionMessageChannelID = msg.ChannelID
 				state.ConnectionStartTime = time.Now()
 			}
 						vc, err := s.ChannelVoiceJoin(m.GuildID, vs.ChannelID, false, false)
@@ -256,7 +256,7 @@ func (h *Handler) leaveVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 							editContent = fmt.Sprintf("Disconnected after %s.", duration)
 						}
 		
-						s.ChannelMessageEdit(state.ConnectionChannelID, state.ConnectionMessageID, editContent)
+						s.ChannelMessageEdit(state.ConnectionMessageChannelID, state.ConnectionMessageID, editContent)
 					}
 		for ssrc, stream := range state.ActiveStreams {
 			stream.OggWriter.Close()
@@ -278,7 +278,7 @@ func (h *Handler) handleVoice(s *discordgo.Session, vc *discordgo.VoiceConnectio
 			if err != nil {
 				logger.Error("Error getting guild", err)
 			} else {
-				s.ChannelMessageEdit(state.ConnectionChannelID, state.ConnectionMessageID, fmt.Sprintf("Connected to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
+				s.ChannelMessageEdit(state.ConnectionMessageChannelID, state.ConnectionMessageID, fmt.Sprintf("Connected to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
 			}
 		}
 	}

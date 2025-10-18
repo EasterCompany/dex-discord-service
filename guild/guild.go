@@ -13,6 +13,7 @@ type GuildState struct {
 	SSRCUserMap   map[uint32]string
 	ConnectionMessageID string
 	ConnectionChannelID string
+	ConnectionMessageChannelID string
 	ConnectionStartTime time.Time
 }
 
@@ -23,6 +24,7 @@ func NewGuildState() *GuildState {
 		SSRCUserMap:   make(map[uint32]string),
 		ConnectionMessageID: "",
 		ConnectionChannelID: "",
+		ConnectionMessageChannelID: "",
 		ConnectionStartTime: time.Time{},
 	}
 }
