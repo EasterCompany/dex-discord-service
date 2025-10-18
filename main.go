@@ -53,7 +53,7 @@ func main() {
 	s.AddHandler(eventHandler.MessageCreate)
 	
 
-	s.AddHandler(eventHandler.SpeakingUpdate)
+	
 	// 7. Connect to Discord
 	if err = s.Open(); err != nil {
 		logger.Fatal("Error opening connection to Discord", err)
