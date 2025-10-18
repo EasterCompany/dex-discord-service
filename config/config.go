@@ -15,6 +15,7 @@ import (
 type MainConfig struct {
 	DiscordConfigPath string `json:"discord_config"`
 	CacheConfigPath   string `json:"cache_config"`
+	BotConfigPath     string `json:"bot_config"`
 }
 
 // DiscordConfig holds all discord-related configuration.
@@ -23,7 +24,6 @@ type DiscordConfig struct {
 	HomeServerID           string `json:"home_server_id"`
 	LogChannelID           string `json:"log_channel_id"`
 	TranscriptionChannelID string `json:"transcription_channel_id"`
-	AudioTTLMinutes        int    `json:"audio_ttl_minutes"`
 }
 
 // CacheConfig holds the configurations for cache connections.
@@ -40,10 +40,17 @@ type ConnectionConfig struct {
 	DB       int    `json:"db"`
 }
 
+// BotConfig holds all bot-related configuration.
+type BotConfig struct {
+	VoiceTimeoutSeconds int `json:"voice_timeout_seconds"`
+	AudioTTLMinutes     int `json:"audio_ttl_minutes"`
+}
+
 // AllConfig holds all configuration for the application.
 type AllConfig struct {
 	Discord *DiscordConfig
 	Cache   *CacheConfig
+	Bot     *BotConfig
 }
 
 func getConfigPath(filename string) (string, error) {
@@ -67,6 +74,7 @@ func LoadAllConfigs() (*AllConfig, error) {
 	if err := loadOrCreate(mainConfigPath, mainConfig, &MainConfig{
 		DiscordConfigPath: "discord.json",
 		CacheConfigPath:   "cache.json",
+		BotConfigPath:     "bot.json",
 	}); err != nil {
 		return nil, fmt.Errorf("could not load main config: %w", err)
 	}
@@ -81,7 +89,6 @@ func LoadAllConfigs() (*AllConfig, error) {
 		HomeServerID:           "",
 		LogChannelID:           "",
 		TranscriptionChannelID: "",
-		AudioTTLMinutes:        10, // Default to a 10-minute TTL for audio files
 	}); err != nil {
 		return nil, fmt.Errorf("could not load discord config: %w", err)
 	}
@@ -98,9 +105,22 @@ func LoadAllConfigs() (*AllConfig, error) {
 		return nil, fmt.Errorf("could not load cache config: %w", err)
 	}
 
+	botConfigPath, err := getConfigPath(mainConfig.BotConfigPath)
+	if err != nil {
+		return nil, err
+	}
+	botConfig := &BotConfig{}
+	if err := loadOrCreate(botConfigPath, botConfig, &BotConfig{
+		VoiceTimeoutSeconds: 2,
+		AudioTTLMinutes:     10,
+	}); err != nil {
+		return nil, fmt.Errorf("could not load bot config: %w", err)
+	}
+
 	return &AllConfig{
 		Discord: discordConfig,
 		Cache:   cacheConfig,
+		Bot:     botConfig,
 	}, nil
 }
 

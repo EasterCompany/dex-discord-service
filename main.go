@@ -46,10 +46,10 @@ func main() {
 	cloudCache, _ := cache.New(cfg.Cache.Cloud) // For health check
 
 	// 5. Create Event Handler with all dependencies
-	eventHandler := events.NewHandler(localCache, cfg.Discord)
+	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot)
 
 	// 6. Register Event Handlers
-	s.AddHandler(eventHandler.Ready)
+	// s.AddHandler(eventHandler.Ready)
 	s.AddHandler(eventHandler.MessageCreate)
 	s.AddHandler(eventHandler.SpeakingUpdate)
 

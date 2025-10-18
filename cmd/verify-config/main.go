@@ -42,6 +42,7 @@ func main() {
 			Model: struct {
 				DiscordConfig string `json:"discord_config"`
 				CacheConfig   string `json:"cache_config"`
+				BotConfig     string `json:"bot_config"`
 			}{},
 		},
 		{
@@ -52,15 +53,32 @@ func main() {
 				HomeServerID           string `json:"home_server_id"`
 				LogChannelID           string `json:"log_channel_id"`
 				TranscriptionChannelID string `json:"transcription_channel_id"`
-				AudioTTLMinutes        int    `json:"audio_ttl_minutes"`
 			}{},
 		},
 		{
 			FileName: "cache.json",
 			Path:     filepath.Join(configDir, "cache.json"),
 			Model: struct {
-				Local map[string]interface{} `json:"local"`
-				Cloud map[string]interface{} `json:"cloud"`
+				Local struct {
+					Addr     string `json:"addr"`
+					Username string `json:"username"`
+					Password string `json:"password"`
+					DB       int    `json:"db"`
+				} `json:"local"`
+				Cloud struct {
+					Addr     string `json:"addr"`
+					Username string `json:"username"`
+					Password string `json:"password"`
+					DB       int    `json:"db"`
+				} `json:"cloud"`
+			}{},
+		},
+		{
+			FileName: "bot.json",
+			Path:     filepath.Join(configDir, "bot.json"),
+			Model: struct {
+				VoiceTimeoutSeconds int `json:"voice_timeout_seconds"`
+				AudioTTLMinutes     int `json:"audio_ttl_minutes"`
 			}{},
 		},
 	}

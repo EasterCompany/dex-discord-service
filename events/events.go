@@ -35,13 +35,15 @@ var (
 type Handler struct {
 	DB         cache.Cache
 	DiscordCfg *config.DiscordConfig
+	BotCfg     *config.BotConfig
 }
 
 // NewHandler creates a new event handler with its dependencies.
-func NewHandler(db cache.Cache, cfg *config.DiscordConfig) *Handler {
+func NewHandler(db cache.Cache, discordCfg *config.DiscordConfig, botCfg *config.BotConfig) *Handler {
 	return &Handler{
 		DB:         db,
-		DiscordCfg: cfg,
+		DiscordCfg: discordCfg,
+		BotCfg:     botCfg,
 	}
 }
 
@@ -202,7 +204,7 @@ func (h *Handler) leaveVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func (h *Handler) handleVoice(s *discordgo.Session, vc *discordgo.VoiceConnection, state *guild.GuildState) {
-	ticker := time.NewTicker(2 * time.Second)
+	ticker := time.NewTicker(time.Duration(h.BotCfg.VoiceTimeoutSeconds) * time.Second)
 	defer ticker.Stop()
 	logger.Post("Voice handler started. Listening for audio...")
 	for {
@@ -274,11 +276,11 @@ func (h *Handler) checkStreamTimeouts(s *discordgo.Session, state *guild.GuildSt
 	state.Mutex.Lock()
 	defer state.Mutex.Unlock()
 	for ssrc, stream := range state.ActiveStreams {
-		if time.Since(stream.LastPacket) > time.Second*1 {
+		if time.Since(stream.LastPacket) > time.Duration(h.BotCfg.VoiceTimeoutSeconds)*time.Second {
 			stream.OggWriter.Close()
 			if h.DB != nil {
 				key := h.GenerateAudioCacheKey(stream.Filename)
-				ttl := time.Duration(h.DiscordCfg.AudioTTLMinutes) * time.Minute
+				ttl := time.Duration(h.BotCfg.AudioTTLMinutes) * time.Minute
 				if err := h.DB.SaveAudio(key, stream.Buffer.Bytes(), ttl); err != nil {
 					logger.Error(fmt.Sprintf("Failed to save audio to cache for key %s", key), err)
 				}
