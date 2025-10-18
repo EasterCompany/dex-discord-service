@@ -51,7 +51,7 @@ func main() {
 	// 6. Register Event Handlers
 	// s.AddHandler(eventHandler.Ready)
 	s.AddHandler(eventHandler.MessageCreate)
-	s.AddHandler(eventHandler.SpeakingUpdate)
+	// s.AddHandler(eventHandler.SpeakingUpdate)
 
 	// 7. Connect to Discord
 	if err = s.Open(); err != nil {
