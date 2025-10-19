@@ -29,10 +29,10 @@ func (c *Client) Transcribe(audioData []byte) (string, error) {
 	ctx := context.Background()
 	req := &speechpb.RecognizeRequest{
 		Config: &speechpb.RecognitionConfig{
-			Encoding:        speechpb.RecognitionConfig_OGG_OPUS,
-			SampleRateHertz: 48000,
-			LanguageCode:    "en-US",
-		},
+			Encoding:          speechpb.RecognitionConfig_OGG_OPUS,
+			SampleRateHertz:   48000,
+			LanguageCode:      "en-US",
+			AudioChannelCount: 2},
 		Audio: &speechpb.RecognitionAudio{
 			AudioSource: &speechpb.RecognitionAudio_Content{Content: audioData},
 		},
