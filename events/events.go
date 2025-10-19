@@ -18,20 +18,6 @@ import (
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 )
 
-var (
-	guildStates   sync.Map
-	rtpPacketPool = sync.Pool{
-		New: func() any {
-			return &rtp.Packet{
-				Header: rtp.Header{
-					Version:     2,
-					PayloadType: 0x78,
-				},
-			}
-		},
-	}
-)
-
 // Handler holds the dependencies for the event handlers.
 type Handler struct {
 	DB         cache.Cache
@@ -39,16 +25,18 @@ type Handler struct {
 	BotCfg     *config.BotConfig
 	Session    *discordgo.Session
 	Logger     logger.Logger
+	StateManager *StateManager
 }
 
 // NewHandler creates a new event handler with its dependencies.
-func NewHandler(db cache.Cache, discordCfg *config.DiscordConfig, botCfg *config.BotConfig, s *discordgo.Session, logger logger.Logger) *Handler {
+func NewHandler(db cache.Cache, discordCfg *config.DiscordConfig, botCfg *config.BotConfig, s *discordgo.Session, logger logger.Logger, stateManager *StateManager) *Handler {
 	return &Handler{
 		DB:         db,
 		DiscordCfg: discordCfg,
 		BotCfg:     botCfg,
 		Session:    s,
 		Logger:     logger,
+		StateManager: stateManager,
 	}
 }
 
@@ -104,10 +92,7 @@ func (h *Handler) fetchAndStoreLast50Messages(s *discordgo.Session, guildID, cha
 	}
 }
 
-// LoadGuildState is a top-level function to allow main to populate initial state.
-func LoadGuildState(guildID string, state *guild.GuildState) {
-	guildStates.Store(guildID, state)
-}
+
 
 func findGuildIDForUser(s *discordgo.Session, userID string) (string, bool) {
 	for _, g := range s.State.Guilds {
@@ -133,11 +118,10 @@ func (h *Handler) SpeakingUpdate(vc *discordgo.VoiceConnection, p *discordgo.Voi
 	var logMessage string
 
 	if p.Speaking {
-		value, ok := guildStates.Load(guildID)
+		state, ok := h.StateManager.GetGuildState(guildID)
 		if !ok {
 			return
 		}
-		state := value.(*guild.GuildState)
 		state.Mutex.Lock()
 		state.SSRCUserMap[uint32(p.SSRC)] = p.UserID
 		state.Mutex.Unlock()
@@ -229,11 +213,10 @@ func (h *Handler) finalizeStream(s *discordgo.Session, guildID string, ssrc uint
 func (h *Handler) disconnectFromVoice(s *discordgo.Session, guildID string) {
 	if vc, ok := s.VoiceConnections[guildID]; ok {
 		vc.Disconnect()
-		value, ok := guildStates.Load(guildID)
+		state, ok := h.StateManager.GetGuildState(guildID)
 		if !ok {
 			return
 		}
-		state := value.(*guild.GuildState)
 		state.Mutex.Lock()
 		defer state.Mutex.Unlock()
 
@@ -256,7 +239,7 @@ func (h *Handler) disconnectFromVoice(s *discordgo.Session, guildID string) {
 			h.finalizeStream(s, guildID, ssrc, stream)
 			delete(state.ActiveStreams, ssrc)
 		}
-		guildStates.Delete(guildID)
+		h.StateManager.DeleteGuildState(guildID)
 	}
 }
 
@@ -271,8 +254,7 @@ func (h *Handler) joinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 	for _, vs := range g.VoiceStates {
 		if vs.UserID == m.Author.ID {
-			value, _ := guildStates.LoadOrStore(m.GuildID, guild.NewGuildState())
-			state := value.(*guild.GuildState)
+			state := h.StateManager.GetOrStoreGuildState(m.GuildID)
 			if h.DB != nil {
 				if err := h.DB.SaveGuildState(m.GuildID, state); err != nil {
 					h.Logger.Error(fmt.Sprintf("Error saving guild state for guild %s", m.GuildID), err)

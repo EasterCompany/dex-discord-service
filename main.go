@@ -67,7 +67,9 @@ func main() {
 
 	localCache, cloudCache := initCache(cfg.Cache, logger)
 
-	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot, s, logger)
+	stateManager := events.NewStateManager()
+
+	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot, s, logger, stateManager)
 
 	registerEventHandlers(s, eventHandler)
 
@@ -104,7 +106,7 @@ func main() {
 					logger.Error(fmt.Sprintf("Error loading guild state for guild %s", guildID), err)
 					continue
 				}
-				events.LoadGuildState(guildID, state)
+				stateManager.GetOrStoreGuildState(guildID)
 			}
 		}
 	}
