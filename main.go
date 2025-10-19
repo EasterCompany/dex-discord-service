@@ -38,7 +38,7 @@ func initCache(cfg *config.CacheConfig, logger logger.Logger) (cache.Cache, cach
 func initDiscord(token string) (*discordgo.Session, error) {
 	s, err := session.NewSession(token)
 	if err != nil {
-		return nil, fmt.Errorf("Error creating Discord session: %w", err)
+		return nil, fmt.Errorf("error creating Discord session: %w", err)
 	}
 	return s, nil
 }
@@ -46,7 +46,7 @@ func initDiscord(token string) (*discordgo.Session, error) {
 func loadConfig() (*config.AllConfig, error) {
 	cfg, err := config.LoadAllConfigs()
 	if err != nil {
-		return nil, fmt.Errorf("Fatal error loading config: %w", err)
+		return nil, fmt.Errorf("fatal error loading config: %w", err)
 	}
 	return cfg, nil
 }
@@ -55,12 +55,11 @@ func loadConfig() (*config.AllConfig, error) {
 func main() {
 	cfg, err := loadConfig()
 	if err != nil {
-		log.Fatalf(err.Error())
+		log.Fatal(err)
 	}
-
 	s, err := initDiscord(cfg.Discord.Token)
 	if err != nil {
-		log.Fatalf(err.Error())
+		log.Fatal(err)
 	}
 
 	logger := logger.NewLogger(s, cfg.Discord.LogChannelID)
@@ -101,18 +100,15 @@ func main() {
 			logger.Error("Error getting all guild IDs", err)
 		} else {
 			for _, guildID := range guildIDs {
-				logger.Error(fmt.Sprintf("Error loading guild state for guild %s", guildID), err)
-				continue
+				stateManager.GetOrStoreGuildState(guildID)
 			}
-			stateManager.GetOrStoreGuildState(guildID)
-		}
-	}
+		}	}
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete\n✅ Guild states loaded")
 	performHealthCheck(s, localCache, cloudCache, cfg, bootMessageID, cleanupReport, logger)
 
 	waitForShutdown()
 
-	s.Close()
+	_ = s.Close()
 	fmt.Println("\nBot shutting down.")
 }
 

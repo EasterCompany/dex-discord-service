@@ -1,0 +1,14 @@
+{
+  "local": {
+    "addr": "localhost:6379",
+    "username": "",
+    "password": "",
+    "db": 0
+  },
+  "cloud": {
+    "addr": "",
+    "username": "",
+    "password": "",
+    "db": 0
+  }
+}

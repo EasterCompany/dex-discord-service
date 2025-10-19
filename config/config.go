@@ -123,7 +123,7 @@ func loadOrCreate(path string, v interface{}, logger logger.Logger) error {
 		}
 		return fmt.Errorf("could not open config file at %s: %w", path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(v); err != nil {
@@ -148,7 +148,7 @@ func createDefaultConfig(path string) error {
 	if err != nil {
 		return fmt.Errorf("could not create config file at %s: %w", path, err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	_, err = file.Write(defaultConfig)
 	return err

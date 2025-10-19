@@ -3,6 +3,7 @@ package cleanup
 import (
 	"strings"
 
+	"github.com/EasterCompany/dex-discord-interface/config"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -36,7 +37,7 @@ func ClearChannel(s *discordgo.Session, channelID, ignoreMessageID string, disco
 	if err != nil {
 		// Fallback for older messages
 		for _, id := range messageIDs {
-			s.ChannelMessageDelete(channelID, id)
+			_ = s.ChannelMessageDelete(channelID, id)
 		}
 	}
 
@@ -64,7 +65,7 @@ func CleanStaleMessages(s *discordgo.Session, channelID string) Result {
 		if msg.Author.ID == s.State.User.ID {
 			if strings.Contains(msg.Content, "[speaking...]") || strings.Contains(msg.Content, "[awaiting transcription]") {
 				newContent := strings.Split(msg.Content, "|")[0] + "| `Status: Interrupted (bot restarted)`"
-				s.ChannelMessageEdit(channelID, msg.ID, newContent)
+				_, _ = s.ChannelMessageEdit(channelID, msg.ID, newContent)
 				count++
 			}
 		}

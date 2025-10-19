@@ -34,7 +34,7 @@ func NewLogger(s *discordgo.Session, channelID string) Logger {
 // Post sends a message to the log channel
 func (l *logger) Post(msg string) {
 	if l.session != nil && l.logChannelID != "" {
-		l.session.ChannelMessageSend(l.logChannelID, msg)
+		_, _ = l.session.ChannelMessageSend(l.logChannelID, msg)
 	}
 }
 
@@ -49,7 +49,7 @@ func (l *logger) PostInitialMessage(msg string) (*discordgo.Message, error) {
 // UpdateInitialMessage edits the initial message with new content
 func (l *logger) UpdateInitialMessage(messageID, newContent string) {
 	if l.session != nil && l.logChannelID != "" {
-		l.session.ChannelMessageEdit(l.logChannelID, messageID, newContent)
+		_, _ = l.session.ChannelMessageEdit(l.logChannelID, messageID, newContent)
 	}
 }
 
@@ -75,7 +75,7 @@ func (l *logger) Error(context string, err error) {
 		if len(msg) > 1900 {
 			msg = msg[:1900] + "..."
 		}
-		l.session.ChannelMessageSend(l.logChannelID, msg)
+_, _ = l.session.ChannelMessageSend(l.logChannelID, msg)
 	}
 }
 
