@@ -123,7 +123,6 @@ func (db *DB) LoadGuildState(guildID string) (*guild.GuildState, error) {
 	if err := json.Unmarshal([]byte(jsonState), &state); err != nil {
 		return nil, fmt.Errorf("could not unmarshal guild state: %w", err)
 	}
-	state.ActiveStreams = make(map[uint32]*guild.UserStream)
 	return &state, nil
 }
 
@@ -161,18 +160,27 @@ func (db *DB) cleanKeysByPattern(pattern string) (CleanResult, error) {
 	}
 	pipe := db.rdb.Pipeline()
 	for _, key := range keysToDelete {
-		// For simplicity and performance, we'll get the size of string values.
-		// For lists (messages), this will be less accurate but still a good indicator.
-		val, err := db.rdb.Get(db.ctx, key).Result()
-		if err == nil {
-			result.BytesFreed += int64(len(val))
-		}
-		pipe.Del(db.ctx, key)
+		pipe.MemoryUsage(db.ctx, key)
 	}
-	_, err := pipe.Exec(db.ctx)
+	cmds, err := pipe.Exec(db.ctx)
 	if err != nil {
 		return result, err
 	}
+	for _, cmd := range cmds {
+		if size, err := cmd.(*redis.IntCmd).Result(); err == nil {
+			result.BytesFreed += size
+		}
+	}
+
+	pipe = db.rdb.Pipeline()
+	for _, key := range keysToDelete {
+		pipe.Del(db.ctx, key)
+	}
+	_, err = pipe.Exec(db.ctx)
+	if err != nil {
+		return result, err
+	}
+
 	result.Count = len(keysToDelete)
 	return result, nil
 }

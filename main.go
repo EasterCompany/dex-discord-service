@@ -67,7 +67,7 @@ func main() {
 
 	localCache, cloudCache := initCache(cfg.Cache, logger)
 
-	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot, s)
+	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot, s, logger)
 
 	registerEventHandlers(s, eventHandler)
 
