@@ -8,7 +8,8 @@ mkdir -p "$DEXTER_DIR"
 echo '{
   "discord_config": "discord.json",
   "cache_config": "cache.json",
-  "bot_config": "bot.json"
+  "bot_config": "bot.json",
+  "gcloud_config": "gcloud.json"
 }' >"$DEXTER_DIR/config.json"
 
 # Discord specific config

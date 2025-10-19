@@ -22,9 +22,11 @@ mkdir -p /root/Dexter/config
 echo "Copying Dexter config files to /root/Dexter/config..."
 SOURCE_USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
 
-cp "$SOURCE_USER_HOME/Dexter/config/config.json" /root/Dexter/config/config.json
-cp "$SOURCE_USER_HOME/Dexter/config/discord.json" /root/Dexter/config/discord.json
-cp "$SOURCE_USER_HOME/Dexter/config/cache.json" /root/Dexter/config/cache.json
+cp "$SOURCE_USER_HOME/Dexter/config/"*.json /root/Dexter/config/
+cp "$SOURCE_USER_HOME/Dexter/config/"*.default.json /root/Dexter/config/
+
+ls -l /root/Dexter/config
+
 chown -R root:root /root/Dexter/config
 
 echo "Configuration files and executable installed."
@@ -41,6 +43,7 @@ Group=root
 WorkingDirectory=/usr/local/bin
 ExecStart=/usr/local/bin/dex-discord-interface
 Restart=always
+Environment="GOOGLE_APPLICATION_CREDENTIALS=/root/Dexter/config/gcloud.json"
 
 [Install]
 WantedBy=multi-user.target
