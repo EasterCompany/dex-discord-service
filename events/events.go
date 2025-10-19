@@ -188,6 +188,11 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 		return
 	}
 
+	// Ignore messages that start with '!' as they are commands
+	if strings.HasPrefix(m.Content, "!") {
+		return
+	}
+
 	if h.DB != nil {
 		key := h.GenerateMessageCacheKey(m.GuildID, m.ChannelID)
 		if err := h.DB.AddMessage(key, m.Message); err != nil {
