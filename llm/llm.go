@@ -45,8 +45,8 @@ const contextBlockTemplate = `
 * **Server:** {{.Guild.Name}} (ID: {{.Guild.ID}})
 * **Channel:** {{.Channel.Name}} (ID: {{.Channel.ID}})
 * **Triggering Message Author:** {{.Message.Author.Username}}
-* **Online Users ({{len .OnlineUsers}}):** {{.OnlineUsers | join ", "}}
-* **Offline Users ({{len .OfflineUsers}}):** {{.OfflineUsers | join ", "}}
+* **Online Users ({{len .OnlineUsers}}):** {{join .OnlineUsers ", "}}
+* **Offline Users ({{len .OfflineUsers}}):** {{join .OfflineUsers ", "}}
 `
 
 const systemMessageTemplate = `
