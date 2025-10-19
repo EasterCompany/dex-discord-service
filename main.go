@@ -282,7 +282,7 @@ func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache
 		"",
 		"**Service Status**",
 		fmt.Sprintf("<:discord:1429533475303719013> Discord: %s", discordStatus),
-		fmt.Sprintf("🗣️ STT Client: %s", sttStatus),
+		fmt.Sprintf("🎧 STT Client: %s", sttStatus),
 		fmt.Sprintf("<:redis:1429533496954585108> Local Cache: %s", localCacheStatus),
 		fmt.Sprintf("<:quickredis:1429533493934948362> Cloud Cache: %s", cloudCacheStatus),
 		"",
