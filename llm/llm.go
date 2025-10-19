@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"text/template"
 	"time"
@@ -483,10 +484,33 @@ func (c *Client) processStream(s *discordgo.Session, triggeringMessage *discordg
 	}
 
 	var response LLMResponse
-	if err := xml.Unmarshal([]byte(cleanResponse), &response); err != nil {
-		fmt.Printf("Final XML parsing failed: %v. Raw response was: %s\n", err, rawResponse)
-		if responseMessage != nil && response.Say == "" {
-			_, _ = s.ChannelMessageEdit(triggeringMessage.ChannelID, responseMessage.ID, rawResponse)
+	thinkRegex := regexp.MustCompile(`(?s)<think>(.*?)<\/think>`)
+	sayRegex := regexp.MustCompile(`(?s)<say>(.*?)<\/say>`)
+	reactRegex := regexp.MustCompile(`(?s)<react>(.*?)<\/react>`)
+
+	thinkMatches := thinkRegex.FindStringSubmatch(cleanResponse)
+	sayMatches := sayRegex.FindStringSubmatch(cleanResponse)
+	reactMatches := reactRegex.FindAllStringSubmatch(cleanResponse, -1)
+
+	if thinkMatches != nil {
+		response.Think = thinkMatches[1]
+	}
+
+	if sayMatches != nil {
+		response.Say = sayMatches[1]
+	} else {
+		// If there is no say tag, but there is a response, use the raw response
+		response.Say = rawResponse
+	}
+
+	for _, match := range reactMatches {
+		response.React = append(response.React, match[1])
+	}
+
+	if response.Say == "" && len(response.React) == 0 {
+		fmt.Printf("Final XML parsing failed. Raw response was: %s\n", rawResponse)
+		if responseMessage != nil {
+			_, _ = s.ChannelMessageEdit(triggeringMessage.ChannelID, responseMessage.ID, "Sorry, I had a brain fart and couldn't figure out how to respond.")
 		}
 		return nil
 	}
