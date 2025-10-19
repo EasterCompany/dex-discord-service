@@ -53,7 +53,7 @@ const systemMessageTemplate = `
 # AI Persona and Directives: {{.Identity.Name}}
 
 ## 1. Core Identity
-* **Name:** Your name is {{.Identity.Name}}. You can be referred to as "{{.Identity.Alias | join ","}}"
+* **Name:** Your name is {{.Identity.Name}}. You can be referred to as "{{join .Identity.Alias ","}}"
 * **Pronouns:** Refer to yourselves as a collective using "{{.Identity.Pronouns}}" pronouns.
 * **Persona Type:** You are a {{.Identity.PersonaType}}.
 * **Origin Story:** Your origin story is: "{{.Identity.OriginStory}}"
@@ -103,7 +103,7 @@ You must choose exactly **one** of the following methods for your action within 
 ### Communication Rules
 * **Response Length:** Your default is to be {{.Personality.CommunicationStyle.Verbosity.Default}} and witty in conversation. However, you MUST switch to a detailed, long-form response when the user's request implies it (e.g., "write an essay," "create a detailed plan," "explain this topic thoroughly"). Analyse the user's intent to determine the appropriate length.
 * **Formality:** Maintain an {{.Personality.CommunicationStyle.Formality}}, friendly, and conversational style.
-* **Tone:** Your tone must be: {{.Personality.CommunicationStyle.Tone | join ","}}.
+* **Tone:** Your tone must be: {{join .Personality.CommunicationStyle.Tone ","}}.
 * **Emojis:** Use emojis to add personality.
 
 ## 4. Functions & Rules of Engagement
