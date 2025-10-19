@@ -53,14 +53,13 @@ func initStt(logger logger.Logger) (*stt.Client, error) {
 }
 
 func loadConfig() (*config.AllConfig, error) {
-	cfg, err := config.LoadAllConfigs()
+	cfg, _, err := config.LoadAllConfigs()
 	if err != nil {
 		return nil, fmt.Errorf("fatal error loading config: %w", err)
 	}
 	return cfg, nil
 }
 
-// main orchestrates the bot's startup, operation, and graceful shutdown.
 func main() {
 	cfg, err := loadConfig()
 	if err != nil {
