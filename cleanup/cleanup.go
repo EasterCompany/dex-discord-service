@@ -12,7 +12,7 @@ type Result struct {
 }
 
 // ClearChannel removes all messages from a channel, except for a specified message to ignore.
-func ClearChannel(s *discordgo.Session, channelID, ignoreMessageID string) Result {
+func ClearChannel(s *discordgo.Session, channelID, ignoreMessageID string, discordCfg *config.DiscordConfig) Result {
 	if channelID == "" {
 		return Result{Name: "ClearChannelSkipped", Count: 0}
 	}
@@ -41,7 +41,7 @@ func ClearChannel(s *discordgo.Session, channelID, ignoreMessageID string) Resul
 	}
 
 	var resultName string
-	if channelID == "1423328325778149438" { // TODO: Avoid hardcoding
+	if channelID == discordCfg.LogChannelID {
 		resultName = "ClearLogs"
 	} else {
 		resultName = "ClearTranscriptions"

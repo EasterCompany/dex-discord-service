@@ -101,17 +101,13 @@ func main() {
 			logger.Error("Error getting all guild IDs", err)
 		} else {
 			for _, guildID := range guildIDs {
-				state, err := localCache.LoadGuildState(guildID)
-				if err != nil {
-					logger.Error(fmt.Sprintf("Error loading guild state for guild %s", guildID), err)
-					continue
-				}
-				stateManager.GetOrStoreGuildState(guildID)
+				logger.Error(fmt.Sprintf("Error loading guild state for guild %s", guildID), err)
+				continue
 			}
+			stateManager.GetOrStoreGuildState(guildID)
 		}
 	}
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete\n✅ Guild states loaded")
-
 	performHealthCheck(s, localCache, cloudCache, cfg, bootMessageID, cleanupReport, logger)
 
 	waitForShutdown()
@@ -155,8 +151,8 @@ func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *co
 	}
 
 	wg.Add(3)
-	go func() { defer wg.Done(); results <- cleanup.ClearChannel(s, discordCfg.LogChannelID, bootMessageID) }()
-	go func() { defer wg.Done(); results <- cleanup.ClearChannel(s, discordCfg.TranscriptionChannelID, "") }()
+	go func() { defer wg.Done(); results <- cleanup.ClearChannel(s, discordCfg.LogChannelID, bootMessageID, discordCfg) }()
+	go func() { defer wg.Done(); results <- cleanup.ClearChannel(s, discordCfg.TranscriptionChannelID, "", discordCfg) }()
 	go func() { defer wg.Done(); results <- cleanup.CleanStaleMessages(s, discordCfg.TranscriptionChannelID) }()
 	wg.Wait()
 	close(results)

@@ -18,6 +18,19 @@ import (
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 )
 
+var (
+	rtpPacketPool = sync.Pool{
+		New: func() any {
+			return &rtp.Packet{
+				Header: rtp.Header{
+					Version:     2,
+					PayloadType: 0x78,
+				},
+			}
+		},
+	}
+)
+
 // Handler holds the dependencies for the event handlers.
 type Handler struct {
 	DB         cache.Cache
