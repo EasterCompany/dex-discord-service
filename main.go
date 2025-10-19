@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"os"
@@ -14,6 +15,7 @@ import (
 	"github.com/EasterCompany/dex-discord-interface/config"
 	"github.com/EasterCompany/dex-discord-interface/events"
 	"github.com/EasterCompany/dex-discord-interface/health"
+	"github.com/EasterCompany/dex-discord-interface/llm"
 	logger "github.com/EasterCompany/dex-discord-interface/log"
 	"github.com/EasterCompany/dex-discord-interface/session"
 	"github.com/EasterCompany/dex-discord-interface/stt"
@@ -21,73 +23,38 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-func registerEventHandlers(s *discordgo.Session, eventHandler *events.Handler) {
-	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
-		addedMessagesCount, addedMessagesSize := eventHandler.Ready(s, r)
-		// Store these values for the health check report
-		eventHandler.StateManager.SetAddedMessagesStats(addedMessagesCount, addedMessagesSize)
-	})
-	s.AddHandler(eventHandler.MessageCreate)
-}
-
-func initCache(cfg *config.CacheConfig, logger logger.Logger) (cache.Cache, cache.Cache) {
-	localCache, err := cache.New(cfg.Local)
-	if err != nil {
-		// Log the error but don't exit; the bot can run without a cache in a degraded state.
-		logger.Error("Failed to initialize local cache", err)
-	}
-	cloudCache, _ := cache.New(cfg.Cloud) // For health check
-	return localCache, cloudCache
-}
-
-func initDiscord(token string) (*discordgo.Session, error) {
-	s, err := session.NewSession(token)
-	if err != nil {
-		return nil, fmt.Errorf("error creating Discord session: %w", err)
-	}
-	return s, nil
-}
-
-func initStt(logger logger.Logger) (*stt.Client, error) {
-	sttClient, err := stt.NewClient()
-	if err != nil {
-		return nil, fmt.Errorf("error creating STT client: %w", err)
-	}
-	return sttClient, nil
-}
-
-func loadConfig() (*config.AllConfig, error) {
-	cfg, _, err := config.LoadAllConfigs()
-	if err != nil {
-		return nil, fmt.Errorf("fatal error loading config: %w", err)
-	}
-	return cfg, nil
-}
-
 func main() {
-	cfg, err := loadConfig()
+	cfg, err := config.LoadAllConfigs()
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Fatal error loading config: %v", err)
 	}
-	s, err := initDiscord(cfg.Discord.Token)
+
+	s, err := session.NewSession(cfg.Discord.Token)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Error creating Discord session: %v", err)
 	}
 
 	logger := logger.NewLogger(s, cfg.Discord.LogChannelID)
-
 	localCache, cloudCache := initCache(cfg.Cache, logger)
-
 	stateManager := events.NewStateManager()
 
-	sttClient, err := initStt(logger)
+	sttClient, err := stt.NewClient()
 	if err != nil {
 		logger.Error("Failed to initialize STT client", err)
 	}
 
-	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot, s, logger, stateManager, sttClient)
+	llmClient, err := llm.NewClient(cfg.Persona, localCache)
+	if err != nil {
+		logger.Fatal("Failed to initialize LLM client", err)
+	}
 
-	registerEventHandlers(s, eventHandler)
+	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot, s, logger, stateManager, sttClient, llmClient)
+
+	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
+		count, size := eventHandler.Ready(s, r)
+		stateManager.SetAddedMessagesStats(count, size)
+	})
+	s.AddHandler(eventHandler.MessageCreate)
 
 	if err = s.Open(); err != nil {
 		logger.Fatal("Error opening connection to Discord", err)
@@ -101,21 +68,25 @@ func main() {
 	if bootMessage != nil {
 		bootMessageID = bootMessage.ID
 	}
+
 	updateBootMessage := func(content string) {
 		if bootMessage != nil {
 			logger.UpdateInitialMessage(bootMessageID, content)
 		}
 	}
+
 	updateBootMessage(`Dexter is starting up...
 ✅ Discord connection established
 ✅ Caches initialized
-✅ STT client initialized`)
+✅ STT client initialized
+✅ LLM client initialized`)
 
 	cleanupReport, audioCleanResult, messageCleanResult := performCleanup(s, localCache, cfg.Discord, bootMessageID, logger)
 	updateBootMessage(`Dexter is starting up...
 ✅ Discord connection established
 ✅ Caches initialized
 ✅ STT client initialized
+✅ LLM client initialized
 ✅ Cleanup complete`)
 
 	if localCache != nil {
@@ -132,24 +103,30 @@ func main() {
 ✅ Discord connection established
 ✅ Caches initialized
 ✅ STT client initialized
+✅ LLM client initialized
 ✅ Cleanup complete
 ✅ Guild states loaded`)
-	performHealthCheck(s, localCache, cloudCache, cfg, bootMessageID, cleanupReport, audioCleanResult, messageCleanResult, sttClient, stateManager, logger)
 
-	waitForShutdown()
+	postFinalStatus(s, localCache, cloudCache, cfg, bootMessageID, cleanupReport, audioCleanResult, messageCleanResult, sttClient, stateManager, logger, llmClient.SystemPrompt)
+
+	fmt.Println("Bot is now running. Press CTRL-C to exit.")
+	sc := make(chan os.Signal, 1)
+	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
+	<-sc
 
 	_ = s.Close()
 	fmt.Println("Bot shutting down.")
 }
 
-func waitForShutdown() {
-	fmt.Println("Bot is now running. Press CTRL-C to exit.")
-	sc := make(chan os.Signal, 1)
-	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
-	<-sc
+func initCache(cfg *config.CacheConfig, logger logger.Logger) (cache.Cache, cache.Cache) {
+	localCache, err := cache.New(cfg.Local)
+	if err != nil {
+		logger.Error("Failed to initialize local cache", err)
+	}
+	cloudCache, _ := cache.New(cfg.Cloud)
+	return localCache, cloudCache
 }
 
-// humanReadableBytes converts a size in bytes to a human-readable string.
 func humanReadableBytes(b int64) string {
 	const unit = 1024
 	if b < unit {
@@ -163,7 +140,6 @@ func humanReadableBytes(b int64) string {
 	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }
 
-// performCleanup runs all boot-time cleanup tasks and returns a formatted report.
 func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *config.DiscordConfig, bootMessageID string, logger logger.Logger) (string, cache.CleanResult, cache.CleanResult) {
 	var wg sync.WaitGroup
 	results := make(chan cleanup.Result, 3)
@@ -202,15 +178,13 @@ func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *co
 	return strings.Join(reportFields, "\n"), audioCleanResult, messageCleanResult
 }
 
-// performHealthCheck runs final system checks and posts the final status message.
-func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache, cfg *config.AllConfig, bootMessageID, cleanupReport string, audioCleanResult, messageCleanResult cache.CleanResult, sttClient *stt.Client, stateManager *events.StateManager, logger logger.Logger) {
+func postFinalStatus(s *discordgo.Session, localCache, cloudCache cache.Cache, cfg *config.AllConfig, bootMessageID, cleanupReport string, audioCleanResult, messageCleanResult cache.CleanResult, sttClient *stt.Client, stateManager *events.StateManager, logger logger.Logger, systemPrompt string) {
 	cpuUsage, _ := system.GetCPUUsage()
 	memUsage, _ := system.GetMemoryUsage()
 	discordStatus := health.GetDiscordStatus(s)
 	localCacheStatus := health.GetCacheStatus(localCache, cfg.Cache.Local)
 	cloudCacheStatus := health.GetCacheStatus(cloudCache, cfg.Cache.Cloud)
 	sttStatus := health.GetSTTStatus(sttClient)
-
 	gpuStatus, gpuInfo := health.GetGPUStatus()
 
 	var gpuInfoStr string
@@ -232,49 +206,8 @@ func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache
 	}
 
 	addedMessagesCount, addedMessagesSize := stateManager.GetAddedMessagesStats()
-
-	activeGuilds := health.GetActiveGuilds(s)
-	activeChannels := health.GetActiveChannels(s)
-	activeConversations := health.GetActiveConversations(s)
-	activeVoiceSessions := health.GetActiveVoiceSessions(s)
-
-	activeGuildsStrings := []string{"**Active Servers**"}
-	if len(activeGuilds) == 0 {
-		activeGuildsStrings = append(activeGuildsStrings, "No active servers.")
-	} else {
-		for name, id := range activeGuilds {
-			activeGuildsStrings = append(activeGuildsStrings, fmt.Sprintf("%s: `%s`", name, id))
-		}
-	}
-
-	activeChannelsStrings := []string{"**Active Channels**"}
-	if len(activeChannels) == 0 {
-		activeChannelsStrings = append(activeChannelsStrings, "No active channels.")
-	} else {
-		for name, id := range activeChannels {
-			activeChannelsStrings = append(activeChannelsStrings, fmt.Sprintf("%s: `%s`", name, id))
-		}
-	}
-
-	activeConversationsStrings := []string{"**Active Conversations**"}
-	if len(activeConversations) == 0 {
-		activeConversationsStrings = append(activeConversationsStrings, "No active conversations.")
-	} else {
-		for name, id := range activeConversations {
-			activeConversationsStrings = append(activeConversationsStrings, fmt.Sprintf("%s: `%s`", name, id))
-		}
-	}
-
-	activeVoiceSessionsStrings := []string{"**Active Voice Sessions**"}
-	if len(activeVoiceSessions) == 0 {
-		activeVoiceSessionsStrings = append(activeVoiceSessionsStrings, "No active voice sessions.")
-	} else {
-		for name, guild := range activeVoiceSessions {
-			activeVoiceSessionsStrings = append(activeVoiceSessionsStrings, fmt.Sprintf("%s on %s", name, guild))
-		}
-	}
-
-	statusFields := []string{
+	activeGuildsStrings := health.GetFormattedActiveGuilds(s)
+	finalStatus := strings.Join([]string{
 		"**System Status**",
 		fmt.Sprintf("🖥️ CPU: `%.2f%%`", cpuUsage),
 		fmt.Sprintf("<:ram:1429533495633510461> Memory: `%.2f%%`", memUsage),
@@ -289,20 +222,20 @@ func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache
 		cleanupReport,
 		"",
 		"**Essential Tasks**",
-		fmt.Sprintf("🗘 Audio Cache: `+%d (%s)` / `-%d (%s)`", 0, humanReadableBytes(0), audioCleanResult.Count, humanReadableBytes(audioCleanResult.BytesFreed)), // Added audio count is not tracked yet
+		fmt.Sprintf("🗘 Audio Cache: `+%d (%s)` / `-%d (%s)`", 0, humanReadableBytes(0), audioCleanResult.Count, humanReadableBytes(audioCleanResult.BytesFreed)),
 		fmt.Sprintf("🗘 Message Cache: `+%d (%s)` / `-%d (%s)`", addedMessagesCount, humanReadableBytes(addedMessagesSize), messageCleanResult.Count, humanReadableBytes(messageCleanResult.BytesFreed)),
 		"",
 		strings.Join(activeGuildsStrings, "\n"),
-		"",
-		strings.Join(activeChannelsStrings, "\n"),
-		"",
-		strings.Join(activeConversationsStrings, "\n"),
-		"",
-		strings.Join(activeVoiceSessionsStrings, "\n"),
+	}, "\n")
+
+	if bootMessageID != "" {
+		_ = s.ChannelMessageDelete(cfg.Discord.LogChannelID, bootMessageID)
 	}
 
-	finalStatus := strings.Join(statusFields, "\n")
-	if bootMessageID != "" {
-		logger.UpdateInitialMessage(bootMessageID, finalStatus)
-	}
+	_, _ = s.ChannelFileSendWithMessage(
+		cfg.Discord.LogChannelID,
+		finalStatus,
+		"persona.md",
+		bytes.NewBufferString(systemPrompt),
+	)
 }

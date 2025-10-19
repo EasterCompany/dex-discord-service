@@ -9,7 +9,8 @@ echo '{
   "discord_config": "discord.json",
   "cache_config": "cache.json",
   "bot_config": "bot.json",
-  "gcloud_config": "gcloud.json"
+  "gcloud_config": "gcloud.json",
+  "persona_config": "persona.json"
 }' >"$DEXTER_DIR/config.json"
 
 # Discord specific config

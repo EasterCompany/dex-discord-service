@@ -8,18 +8,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EasterCompany/dex-discord-interface/interfaces"
 	logger "github.com/EasterCompany/dex-discord-interface/log"
 )
 
-// MainConfig points to the other config files.
 type MainConfig struct {
 	DiscordConfigPath string `json:"discord_config"`
 	CacheConfigPath   string `json:"cache_config"`
 	BotConfigPath     string `json:"bot_config"`
 	GcloudConfigPath  string `json:"gcloud_config"`
+	PersonaConfigPath string `json:"persona_config"`
 }
 
-// DiscordConfig holds all discord-related configuration.
 type DiscordConfig struct {
 	Token                  string `json:"token"`
 	HomeServerID           string `json:"home_server_id"`
@@ -27,13 +27,11 @@ type DiscordConfig struct {
 	TranscriptionChannelID string `json:"transcription_channel_id"`
 }
 
-// CacheConfig holds the configurations for cache connections.
 type CacheConfig struct {
 	Local *ConnectionConfig `json:"local"`
 	Cloud *ConnectionConfig `json:"cloud"`
 }
 
-// ConnectionConfig holds the details for a single cache connection.
 type ConnectionConfig struct {
 	Addr     string `json:"addr"`
 	Username string `json:"username"`
@@ -41,13 +39,10 @@ type ConnectionConfig struct {
 	DB       int    `json:"db"`
 }
 
-// BotConfig holds all bot-related configuration.
 type BotConfig struct {
 	VoiceTimeoutSeconds int `json:"voice_timeout_seconds"`
 	AudioTTLMinutes     int `json:"audio_ttl_minutes"`
 }
-
-// GcloudConfig holds all gcloud-related configuration.
 
 type GcloudConfig struct {
 	Type                    string `json:"type"`
@@ -62,12 +57,12 @@ type GcloudConfig struct {
 	ClientX509CertURL       string `json:"client_x509_cert_url"`
 }
 
-// AllConfig holds all configuration for the application.
 type AllConfig struct {
 	Discord *DiscordConfig
 	Cache   *CacheConfig
 	Bot     *BotConfig
 	Gcloud  *GcloudConfig
+	Persona *interfaces.Persona
 }
 
 func getConfigPath(filename string) (string, error) {
@@ -130,11 +125,21 @@ func LoadAllConfigs() (*AllConfig, *MainConfig, error) {
 		return nil, nil, fmt.Errorf("could not load gcloud config: %w", err)
 	}
 
+	personaConfigPath, err := getConfigPath(mainConfig.PersonaConfigPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	personaConfig := &interfaces.Persona{}
+	if err := loadOrCreate(personaConfigPath, personaConfig, tmpLogger); err != nil {
+		return nil, nil, fmt.Errorf("could not load persona config: %w", err)
+	}
+
 	return &AllConfig{
 		Discord: discordConfig,
 		Cache:   cacheConfig,
 		Bot:     botConfig,
 		Gcloud:  gcloudConfig,
+		Persona: personaConfig,
 	}, mainConfig, nil
 }
 
@@ -150,7 +155,7 @@ func loadOrCreate(path string, v interface{}, logger logger.Logger) error {
 		}
 		return fmt.Errorf("could not open config file at %s: %w", path, err)
 	}
-	defer func() { _ = file.Close() }()
+	defer file.Close()
 
 	decoder := json.NewDecoder(file)
 	if err := decoder.Decode(v); err != nil {
@@ -168,14 +173,23 @@ func createDefaultConfig(path string) error {
 	defaultPath := strings.Replace(path, ".json", ".default.json", 1)
 	defaultConfig, err := os.ReadFile(defaultPath)
 	if err != nil {
-		return fmt.Errorf("could not read default config file at %s: %w", defaultPath, err)
+		// Attempt to read from the root of the project as a fallback
+		executablePath, err := os.Executable()
+		if err == nil {
+			projectRoot := filepath.Dir(executablePath)
+			fallbackPath := filepath.Join(projectRoot, "config", filepath.Base(defaultPath))
+			defaultConfig, err = os.ReadFile(fallbackPath)
+		}
+		if err != nil {
+			return fmt.Errorf("could not read default config file at %s or fallback location: %w", defaultPath, err)
+		}
 	}
 
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("could not create config file at %s: %w", path, err)
 	}
-	defer func() { _ = file.Close() }()
+	defer file.Close()
 
 	_, err = file.Write(defaultConfig)
 	return err

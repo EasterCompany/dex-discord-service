@@ -7,9 +7,11 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
+
+	"github.com/EasterCompany/dex-discord-interface/interfaces"
 )
 
-// ANSI color codes for formatted output
 const (
 	ColorReset  = "\033[0m"
 	ColorRed    = "\033[31m"
@@ -18,7 +20,6 @@ const (
 	ColorBlue   = "\033[34m"
 )
 
-// Represents the expected structure of a config file for validation.
 type ConfigSchema struct {
 	FileName string
 	Path     string
@@ -44,6 +45,7 @@ func main() {
 				CacheConfig   string `json:"cache_config"`
 				BotConfig     string `json:"bot_config"`
 				GcloudConfig  string `json:"gcloud_config"`
+				PersonaConfig string `json:"persona_config"`
 			}{},
 		},
 		{
@@ -82,6 +84,11 @@ func main() {
 				AudioTTLMinutes     int `json:"audio_ttl_minutes"`
 			}{},
 		},
+		{
+			FileName: "persona.json",
+			Path:     filepath.Join(configDir, "persona.json"),
+			Model:    interfaces.Persona{},
+		},
 	}
 
 	allChecksPassed := true
@@ -103,19 +110,22 @@ func main() {
 }
 
 func verifyConfigFile(schema ConfigSchema) bool {
-	// 1. Check file existence
 	content, err := os.ReadFile(schema.Path)
 	if err != nil {
-		fmt.Printf("  %s[FAIL]%s File not found or not readable: %v\n", ColorRed, ColorReset, err)
-		return false
+		defaultPath := strings.Replace(schema.Path, ".json", ".default.json", 1)
+		content, err = os.ReadFile(defaultPath)
+		if err != nil {
+			fmt.Printf("  %s[FAIL]%s File not found or not readable (and no .default.json fallback): %v\n", ColorRed, ColorReset, err)
+			return false
+		}
+		fmt.Printf("  %s[OK]%s File exists (using .default.json fallback) and is readable.\n", ColorGreen, ColorReset)
+	} else {
+		fmt.Printf("  %s[OK]%s File exists and is readable.\n", ColorGreen, ColorReset)
 	}
-	fmt.Printf("  %s[OK]%s File exists and is readable.\n", ColorGreen, ColorReset)
 
-	// 2. Check for valid JSON and unknown fields
 	decoder := json.NewDecoder(bytes.NewReader(content))
-	decoder.DisallowUnknownFields() // This is the key check for extra fields
+	decoder.DisallowUnknownFields()
 
-	// We create a new instance of the model struct for decoding.
 	modelType := reflect.TypeOf(schema.Model)
 	modelInstance := reflect.New(modelType).Interface()
 
@@ -125,24 +135,36 @@ func verifyConfigFile(schema ConfigSchema) bool {
 	}
 	fmt.Printf("  %s[OK]%s JSON is valid and all fields are recognized.\n", ColorGreen, ColorReset)
 
-	// 3. Check for missing fields (by checking if any field has its zero value)
-	// This is a simple check; more complex validation could be added here.
 	val := reflect.ValueOf(modelInstance).Elem()
 	typ := val.Type()
 	missingFields := []string{}
-	for i := 0; i < val.NumField(); i++ {
-		field := val.Field(i)
-		if field.IsZero() {
-			missingFields = append(missingFields, typ.Field(i).Name)
-		}
-	}
+	checkFields(val, typ, &missingFields, "")
 
 	if len(missingFields) > 0 {
 		fmt.Printf("  %s[WARN]%s The following fields are present but have empty/default values: %v\n", ColorYellow, ColorReset, missingFields)
-		// This is a warning, not a failure, so we still return true.
 	} else {
 		fmt.Printf("  %s[OK]%s All required fields have non-empty values.\n", ColorGreen, ColorReset)
 	}
 
 	return true
+}
+
+func checkFields(val reflect.Value, typ reflect.Type, missingFields *[]string, prefix string) {
+	for i := 0; i < val.NumField(); i++ {
+		field := val.Field(i)
+		fieldType := typ.Field(i)
+
+		if fieldType.PkgPath != "" {
+			continue
+		}
+
+		if field.Kind() == reflect.Struct {
+			checkFields(field, field.Type(), missingFields, prefix+fieldType.Name+".")
+			continue
+		}
+
+		if field.IsZero() {
+			*missingFields = append(*missingFields, prefix+fieldType.Name)
+		}
+	}
 }

@@ -25,6 +25,7 @@ type Cache interface {
 	SaveMessage(key string, m *discordgo.Message) error
 	BulkInsertMessages(key string, messages []*discordgo.Message) error
 	AddMessage(key string, message *discordgo.Message) error
+	GetLastNMessages(key string, n int64) ([]*discordgo.Message, error)
 	SaveGuildState(guildID string, state *guild.GuildState) error
 	LoadGuildState(guildID string) (*guild.GuildState, error)
 	GetAllGuildIDs() ([]string, error)
@@ -42,7 +43,7 @@ type CleanResult struct {
 
 func New(cfg *config.ConnectionConfig) (Cache, error) {
 	if cfg == nil || cfg.Addr == "" {
-		return nil, nil // Not configured, no error
+		return nil, nil
 	}
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.Addr,
@@ -101,6 +102,27 @@ func (db *DB) AddMessage(key string, message *discordgo.Message) error {
 	pipe.LTrim(db.ctx, prefixedKey, -50, -1)
 	_, err = pipe.Exec(db.ctx)
 	return err
+}
+
+func (db *DB) GetLastNMessages(key string, n int64) ([]*discordgo.Message, error) {
+	prefixedKey := db.prefixedKey(key)
+	results, err := db.rdb.LRange(db.ctx, prefixedKey, -n, -1).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return []*discordgo.Message{}, nil
+		}
+		return nil, fmt.Errorf("could not get messages from cache: %w", err)
+	}
+
+	messages := make([]*discordgo.Message, 0, len(results))
+	for _, res := range results {
+		var msg discordgo.Message
+		if err := json.Unmarshal([]byte(res), &msg); err != nil {
+			return nil, fmt.Errorf("could not unmarshal message from cache: %w", err)
+		}
+		messages = append(messages, &msg)
+	}
+	return messages, nil
 }
 
 func (db *DB) SaveGuildState(guildID string, state *guild.GuildState) error {
