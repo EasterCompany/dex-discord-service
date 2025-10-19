@@ -56,3 +56,55 @@ func GetGPUStatus() (string, *system.GPUInfo) {
 	}
 	return "**OK**", info
 }
+
+// GetActiveGuilds returns a map of guild names to guild IDs.
+func GetActiveGuilds(s *discordgo.Session) map[string]string {
+	guilds := make(map[string]string)
+	for _, guild := range s.State.Guilds {
+		guilds[guild.Name] = guild.ID
+	}
+	return guilds
+}
+
+// GetActiveChannels returns a map of channel names to channel IDs for all text channels.
+func GetActiveChannels(s *discordgo.Session) map[string]string {
+	channels := make(map[string]string)
+	for _, guild := range s.State.Guilds {
+		for _, channel := range guild.Channels {
+			if channel.Type == discordgo.ChannelTypeGuildText {
+				channels[channel.Name] = channel.ID
+			}
+		}
+	}
+	return channels
+}
+
+// GetActiveConversations returns a map of user names to channel IDs for all private messages.
+func GetActiveConversations(s *discordgo.Session) map[string]string {
+	conversations := make(map[string]string)
+	for _, channel := range s.State.PrivateChannels {
+		if channel.Type == discordgo.ChannelTypeDM {
+			for _, recipient := range channel.Recipients {
+				conversations[recipient.Username] = channel.ID
+			}
+		}
+	}
+	return conversations
+}
+
+// GetActiveVoiceSessions returns a map of voice channel names to guild names.
+func GetActiveVoiceSessions(s *discordgo.Session) map[string]string {
+	sessions := make(map[string]string)
+	for _, vc := range s.VoiceConnections {
+		channel, err := s.Channel(vc.ChannelID)
+		if err != nil {
+			continue
+		}
+		guild, err := s.Guild(vc.GuildID)
+		if err != nil {
+			continue
+		}
+		sessions[channel.Name] = guild.Name
+	}
+	return sessions
+}

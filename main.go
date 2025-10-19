@@ -233,6 +233,47 @@ func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache
 
 	addedMessagesCount, addedMessagesSize := stateManager.GetAddedMessagesStats()
 
+	activeGuilds := health.GetActiveGuilds(s)
+	activeChannels := health.GetActiveChannels(s)
+	activeConversations := health.GetActiveConversations(s)
+	activeVoiceSessions := health.GetActiveVoiceSessions(s)
+
+	activeGuildsStrings := []string{"**Active Servers**"}
+	if len(activeGuilds) == 0 {
+		activeGuildsStrings = append(activeGuildsStrings, "No active servers.")
+	} else {
+		for name, id := range activeGuilds {
+			activeGuildsStrings = append(activeGuildsStrings, fmt.Sprintf("%s: `%s`", name, id))
+		}
+	}
+
+	activeChannelsStrings := []string{"**Active Channels**"}
+	if len(activeChannels) == 0 {
+		activeChannelsStrings = append(activeChannelsStrings, "No active channels.")
+	} else {
+		for name, id := range activeChannels {
+			activeChannelsStrings = append(activeChannelsStrings, fmt.Sprintf("%s: `%s`", name, id))
+		}
+	}
+
+	activeConversationsStrings := []string{"**Active Conversations**"}
+	if len(activeConversations) == 0 {
+		activeConversationsStrings = append(activeConversationsStrings, "No active conversations.")
+	} else {
+		for name, id := range activeConversations {
+			activeConversationsStrings = append(activeConversationsStrings, fmt.Sprintf("%s: `%s`", name, id))
+		}
+	}
+
+	activeVoiceSessionsStrings := []string{"**Active Voice Sessions**"}
+	if len(activeVoiceSessions) == 0 {
+		activeVoiceSessionsStrings = append(activeVoiceSessionsStrings, "No active voice sessions.")
+	} else {
+		for name, guild := range activeVoiceSessions {
+			activeVoiceSessionsStrings = append(activeVoiceSessionsStrings, fmt.Sprintf("%s on %s", name, guild))
+		}
+	}
+
 	statusFields := []string{
 		"**System Status**",
 		fmt.Sprintf("🖥️ CPU: `%.2f%%`", cpuUsage),
@@ -248,8 +289,16 @@ func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache
 		cleanupReport,
 		"",
 		"**Essential Tasks**",
-		fmt.Sprintf("🔄 Audio Cache: `+%d (%s)` / `-%d (%s)`", 0, humanReadableBytes(0), audioCleanResult.Count, humanReadableBytes(audioCleanResult.BytesFreed)), // Added audio count is not tracked yet
-		fmt.Sprintf("🔄 Message Cache: `+%d (%s)` / `-%d (%s)`", addedMessagesCount, humanReadableBytes(addedMessagesSize), messageCleanResult.Count, humanReadableBytes(messageCleanResult.BytesFreed)),
+		fmt.Sprintf("🗘 Audio Cache: `+%d (%s)` / `-%d (%s)`", 0, humanReadableBytes(0), audioCleanResult.Count, humanReadableBytes(audioCleanResult.BytesFreed)), // Added audio count is not tracked yet
+		fmt.Sprintf("🗘 Message Cache: `+%d (%s)` / `-%d (%s)`", addedMessagesCount, humanReadableBytes(addedMessagesSize), messageCleanResult.Count, humanReadableBytes(messageCleanResult.BytesFreed)),
+		"",
+		strings.Join(activeGuildsStrings, "\n"),
+		"",
+		strings.Join(activeChannelsStrings, "\n"),
+		"",
+		strings.Join(activeConversationsStrings, "\n"),
+		"",
+		strings.Join(activeVoiceSessionsStrings, "\n"),
 	}
 
 	finalStatus := strings.Join(statusFields, "\n")
