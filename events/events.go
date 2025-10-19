@@ -33,22 +33,22 @@ var (
 
 // Handler holds the dependencies for the event handlers.
 type Handler struct {
-	DB         cache.Cache
-	DiscordCfg *config.DiscordConfig
-	BotCfg     *config.BotConfig
-	Session    *discordgo.Session
-	Logger     logger.Logger
+	DB           cache.Cache
+	DiscordCfg   *config.DiscordConfig
+	BotCfg       *config.BotConfig
+	Session      *discordgo.Session
+	Logger       logger.Logger
 	StateManager *StateManager
 }
 
 // NewHandler creates a new event handler with its dependencies.
 func NewHandler(db cache.Cache, discordCfg *config.DiscordConfig, botCfg *config.BotConfig, s *discordgo.Session, logger logger.Logger, stateManager *StateManager) *Handler {
 	return &Handler{
-		DB:         db,
-		DiscordCfg: discordCfg,
-		BotCfg:     botCfg,
-		Session:    s,
-		Logger:     logger,
+		DB:           db,
+		DiscordCfg:   discordCfg,
+		BotCfg:       botCfg,
+		Session:      s,
+		Logger:       logger,
 		StateManager: stateManager,
 	}
 }
@@ -104,10 +104,6 @@ func (h *Handler) fetchAndStoreLast50Messages(s *discordgo.Session, guildID, cha
 		h.Logger.Error(fmt.Sprintf("Failed to bulk insert messages for channel %s", channelID), err)
 	}
 }
-
-
-
-
 
 // SpeakingUpdate handles users starting to speak.
 func (h *Handler) SpeakingUpdate(vc *discordgo.VoiceConnection, p *discordgo.VoiceSpeakingUpdate) {

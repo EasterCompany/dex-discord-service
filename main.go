@@ -102,7 +102,8 @@ func main() {
 			for _, guildID := range guildIDs {
 				stateManager.GetOrStoreGuildState(guildID)
 			}
-		}	}
+		}
+	}
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete\n✅ Guild states loaded")
 	performHealthCheck(s, localCache, cloudCache, cfg, bootMessageID, cleanupReport, logger)
 
@@ -147,8 +148,14 @@ func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *co
 	}
 
 	wg.Add(3)
-	go func() { defer wg.Done(); results <- cleanup.ClearChannel(s, discordCfg.LogChannelID, bootMessageID, discordCfg) }()
-	go func() { defer wg.Done(); results <- cleanup.ClearChannel(s, discordCfg.TranscriptionChannelID, "", discordCfg) }()
+	go func() {
+		defer wg.Done()
+		results <- cleanup.ClearChannel(s, discordCfg.LogChannelID, bootMessageID, discordCfg)
+	}()
+	go func() {
+		defer wg.Done()
+		results <- cleanup.ClearChannel(s, discordCfg.TranscriptionChannelID, "", discordCfg)
+	}()
 	go func() { defer wg.Done(); results <- cleanup.CleanStaleMessages(s, discordCfg.TranscriptionChannelID) }()
 	wg.Wait()
 	close(results)

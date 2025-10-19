@@ -75,7 +75,7 @@ func (l *logger) Error(context string, err error) {
 		if len(msg) > 1900 {
 			msg = msg[:1900] + "..."
 		}
-_, _ = l.session.ChannelMessageSend(l.logChannelID, msg)
+		_, _ = l.session.ChannelMessageSend(l.logChannelID, msg)
 	}
 }
 
