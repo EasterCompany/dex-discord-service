@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 # Run golangci-lint to format the code
 echo "Running golangci-lint fmt..."
 golangci-lint fmt .
@@ -9,4 +11,3 @@ echo "Running golangci-lint..."
 golangci-lint run
 
 echo "Linting and formatting checks passed."
-exit 0
