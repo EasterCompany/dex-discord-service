@@ -43,6 +43,7 @@ func main() {
 				DiscordConfig string `json:"discord_config"`
 				CacheConfig   string `json:"cache_config"`
 				BotConfig     string `json:"bot_config"`
+				GcloudConfig  string `json:"gcloud_config"`
 			}{},
 		},
 		{
