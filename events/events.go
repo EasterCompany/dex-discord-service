@@ -188,8 +188,19 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 		return
 	}
 
-	// Ignore messages that start with '!' as they are commands
-	if strings.HasPrefix(m.Content, "!") {
+	wasCommand := false
+	if m.GuildID != "" {
+		switch {
+		case strings.HasPrefix(m.Content, "!join"):
+			h.joinVoice(s, m)
+			wasCommand = true
+		case strings.HasPrefix(m.Content, "!leave"):
+			h.leaveVoice(s, m)
+			wasCommand = true
+		}
+	}
+
+	if wasCommand {
 		return
 	}
 
@@ -201,15 +212,6 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 
 		if h.LLMClient != nil {
 			go h.processLLMResponse(s, m)
-		}
-	}
-
-	if m.GuildID != "" {
-		switch {
-		case strings.HasPrefix(m.Content, "!join"):
-			h.joinVoice(s, m)
-		case strings.HasPrefix(m.Content, "!leave"):
-			h.leaveVoice(s, m)
 		}
 	}
 }
