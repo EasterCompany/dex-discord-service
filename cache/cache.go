@@ -114,12 +114,16 @@ func (db *DB) LoadGuildState(guildID string) (*guild.GuildState, error) {
 	key := db.prefixedKey(fmt.Sprintf("guild:%s:state", guildID))
 	jsonState, err := db.rdb.Get(db.ctx, key).Result()
 	if err != nil {
+		if err == redis.Nil {
+			return guild.NewGuildState(), nil
+		}
 		return nil, fmt.Errorf("could not load guild state: %w", err)
 	}
 	var state guild.GuildState
 	if err := json.Unmarshal([]byte(jsonState), &state); err != nil {
 		return nil, fmt.Errorf("could not unmarshal guild state: %w", err)
 	}
+	state.ActiveStreams = make(map[uint32]*guild.UserStream)
 	return &state, nil
 }
 
