@@ -108,3 +108,16 @@ func GetActiveVoiceSessions(s *discordgo.Session) map[string]string {
 	}
 	return sessions
 }
+
+// GetFormattedActiveGuilds returns a slice of strings, each containing the formatted name of an active guild.
+func GetFormattedActiveGuilds(s *discordgo.Session) []string {
+	guilds := GetActiveGuilds(s)
+	var guildStrings []string
+	if len(guilds) > 0 {
+		guildStrings = append(guildStrings, "**Active Guilds**")
+		for name := range guilds {
+			guildStrings = append(guildStrings, fmt.Sprintf("🌐 %s", name))
+		}
+	}
+	return guildStrings
+}

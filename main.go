@@ -24,7 +24,7 @@ import (
 )
 
 func main() {
-	cfg, err := config.LoadAllConfigs()
+	cfg, _, err := config.LoadAllConfigs()
 	if err != nil {
 		log.Fatalf("Fatal error loading config: %v", err)
 	}

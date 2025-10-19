@@ -256,8 +256,7 @@ func (c *Client) ShouldEngage(s *discordgo.Session, m *discordgo.MessageCreate, 
 	if err != nil {
 		return false, fmt.Errorf("failed to send engagement request to ollama: %w", err)
 	}
-	defer resp.Body.Close()
-
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return false, fmt.Errorf("ollama returned non-200 status for engagement check: %s", resp.Status)
 	}
@@ -380,7 +379,7 @@ func (c *Client) StreamChatCompletion(s *discordgo.Session, triggeringMessage *d
 	if err != nil {
 		return fmt.Errorf("failed to send request to ollama: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
