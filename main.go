@@ -236,7 +236,7 @@ func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache
 	statusFields := []string{
 		"**System Status**",
 		fmt.Sprintf("🖥️ CPU: `%.2f%%`", cpuUsage),
-		fmt.Sprintf("<:ram:1429533495633510461> MEM: `%.2f%%`", memUsage),
+		fmt.Sprintf("<:ram:1429533495633510461> Memory: `%.2f%%`", memUsage),
 		gpuInfoStr,
 		"",
 		"**Service Status**",
