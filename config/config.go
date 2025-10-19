@@ -16,6 +16,7 @@ type MainConfig struct {
 	DiscordConfigPath string `json:"discord_config"`
 	CacheConfigPath   string `json:"cache_config"`
 	BotConfigPath     string `json:"bot_config"`
+	GcloudConfigPath  string `json:"gcloud_config"`
 }
 
 // DiscordConfig holds all discord-related configuration.
@@ -46,11 +47,27 @@ type BotConfig struct {
 	AudioTTLMinutes     int `json:"audio_ttl_minutes"`
 }
 
+// GcloudConfig holds all gcloud-related configuration.
+
+type GcloudConfig struct {
+	Type                    string `json:"type"`
+	ProjectID               string `json:"project_id"`
+	PrivateKeyID            string `json:"private_key_id"`
+	PrivateKey              string `json:"private_key"`
+	ClientEmail             string `json:"client_email"`
+	ClientID                string `json:"client_id"`
+	AuthURI                 string `json:"auth_uri"`
+	TokenURI                string `json:"token_uri"`
+	AuthProviderX509CertURL string `json:"auth_provider_x509_cert_url"`
+	ClientX509CertURL       string `json:"client_x509_cert_url"`
+}
+
 // AllConfig holds all configuration for the application.
 type AllConfig struct {
 	Discord *DiscordConfig
 	Cache   *CacheConfig
 	Bot     *BotConfig
+	Gcloud  *GcloudConfig
 }
 
 func getConfigPath(filename string) (string, error) {
@@ -64,51 +81,61 @@ func getConfigPath(filename string) (string, error) {
 	return filepath.Join(home, "Dexter", "config", filename), nil
 }
 
-func LoadAllConfigs() (*AllConfig, error) {
+func LoadAllConfigs() (*AllConfig, *MainConfig, error) {
 	tmpLogger := logger.NewLogger(nil, "")
 
 	mainConfigPath, err := getConfigPath("config.json")
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	mainConfig := &MainConfig{}
 	if err := loadOrCreate(mainConfigPath, mainConfig, tmpLogger); err != nil {
-		return nil, fmt.Errorf("could not load main config: %w", err)
+		return nil, nil, fmt.Errorf("could not load main config: %w", err)
 	}
 
 	discordConfigPath, err := getConfigPath(mainConfig.DiscordConfigPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	discordConfig := &DiscordConfig{}
 	if err := loadOrCreate(discordConfigPath, discordConfig, tmpLogger); err != nil {
-		return nil, fmt.Errorf("could not load discord config: %w", err)
+		return nil, nil, fmt.Errorf("could not load discord config: %w", err)
 	}
 
 	cacheConfigPath, err := getConfigPath(mainConfig.CacheConfigPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	cacheConfig := &CacheConfig{}
 	if err := loadOrCreate(cacheConfigPath, cacheConfig, tmpLogger); err != nil {
-		return nil, fmt.Errorf("could not load cache config: %w", err)
+		return nil, nil, fmt.Errorf("could not load cache config: %w", err)
 	}
 
 	botConfigPath, err := getConfigPath(mainConfig.BotConfigPath)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	botConfig := &BotConfig{}
 	if err := loadOrCreate(botConfigPath, botConfig, tmpLogger); err != nil {
-		return nil, fmt.Errorf("could not load bot config: %w", err)
+		return nil, nil, fmt.Errorf("could not load bot config: %w", err)
+	}
+
+	gcloudConfigPath, err := getConfigPath(mainConfig.GcloudConfigPath)
+	if err != nil {
+		return nil, nil, err
+	}
+	gcloudConfig := &GcloudConfig{}
+	if err := loadOrCreate(gcloudConfigPath, gcloudConfig, tmpLogger); err != nil {
+		return nil, nil, fmt.Errorf("could not load gcloud config: %w", err)
 	}
 
 	return &AllConfig{
 		Discord: discordConfig,
 		Cache:   cacheConfig,
 		Bot:     botConfig,
-	}, nil
+		Gcloud:  gcloudConfig,
+	}, mainConfig, nil
 }
 
 func loadOrCreate(path string, v interface{}, logger logger.Logger) error {
