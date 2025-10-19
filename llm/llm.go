@@ -444,6 +444,8 @@ func (c *Client) processStream(s *discordgo.Session, triggeringMessage *discordg
 					if !strings.Contains(currentBuffer[:sayIndex], "</think>") {
 						currentBuffer = currentBuffer[:sayIndex] + "</think>" + currentBuffer[sayIndex:]
 						sayIndex += len("</think>")
+						fullContent.Reset()
+						fullContent.WriteString(currentBuffer)
 					}
 				}
 
@@ -454,6 +456,15 @@ func (c *Client) processStream(s *discordgo.Session, triggeringMessage *discordg
 				}
 				lastEdit = time.Now()
 				currentState = stateStreamingSay
+			} else if reactIndex := strings.Index(currentBuffer, "<react>"); reactIndex != -1 {
+				// Check if <think> is open and unclosed
+				if thinkIndex := strings.Index(currentBuffer, "<think>"); thinkIndex != -1 {
+					if !strings.Contains(currentBuffer[:reactIndex], "</think>") {
+						currentBuffer = currentBuffer[:reactIndex] + "</think>" + currentBuffer[reactIndex:]
+						fullContent.Reset()
+						fullContent.WriteString(currentBuffer)
+					}
+				}
 			}
 		case stateStreamingSay:
 			if time.Since(lastEdit) > editInterval {
@@ -487,6 +498,14 @@ func (c *Client) processStream(s *discordgo.Session, triggeringMessage *discordg
 	// Check for open <say> tag and close it if necessary
 	if strings.Contains(rawResponse, "<say>") && !strings.Contains(rawResponse, "</say>") {
 		rawResponse += "</say>"
+	}
+
+	// Ensure the response is wrapped in <response> tags
+	if !strings.HasPrefix(rawResponse, "<response>") {
+		rawResponse = "<response>" + rawResponse
+	}
+	if !strings.HasSuffix(rawResponse, "</response>") {
+		rawResponse += "</response>"
 	}
 
 	cleanResponse := strings.TrimSpace(rawResponse)
