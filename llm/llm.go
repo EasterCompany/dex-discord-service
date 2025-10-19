@@ -536,9 +536,6 @@ func (c *Client) processStream(s *discordgo.Session, triggeringMessage *discordg
 
 	if sayMatches != nil {
 		response.Say = sayMatches[1]
-	} else {
-		// If there is no say tag, but there is a response, use the raw response
-		response.Say = rawResponse
 	}
 
 	for _, match := range reactMatches {
