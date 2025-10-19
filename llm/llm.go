@@ -439,6 +439,14 @@ func (c *Client) processStream(s *discordgo.Session, triggeringMessage *discordg
 			}
 		case stateThinking:
 			if sayIndex := strings.Index(currentBuffer, "<say>"); sayIndex != -1 {
+				// Check if <think> is open and unclosed
+				if thinkIndex := strings.Index(currentBuffer, "<think>"); thinkIndex != -1 {
+					if !strings.Contains(currentBuffer[:sayIndex], "</think>") {
+						currentBuffer = currentBuffer[:sayIndex] + "</think>" + currentBuffer[sayIndex:]
+						sayIndex += len("</think>")
+					}
+				}
+
 				initialContent := currentBuffer[sayIndex+len("<say>"):]
 				_, err := s.ChannelMessageEdit(triggeringMessage.ChannelID, responseMessage.ID, initialContent)
 				if err != nil {
