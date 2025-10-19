@@ -217,20 +217,23 @@ func (h *Handler) finalizeStream(s *discordgo.Session, guildID string, ssrc uint
 
 func (h *Handler) transcribeAndUpdate(s *discordgo.Session, stream *guild.UserStream, g *discordgo.Guild, channel *discordgo.Channel, displayName string, duration time.Duration, endTime time.Time) {
 	if h.SttClient == nil {
+		h.Logger.Error("STT client is nil, cannot transcribe", nil)
 		return
 	}
 
 	audio, err := h.DB.GetAudio(h.GenerateAudioCacheKey(stream.Filename))
 	if err != nil {
+		h.Logger.Error(fmt.Sprintf("Failed to get audio from cache for key %s", stream.Filename), err)
 		return
 	}
 
 	transcription, err := h.SttClient.Transcribe(audio)
 	if err != nil {
+		h.Logger.Error(fmt.Sprintf("Failed to transcribe audio for key %s", stream.Filename), err)
 		return
 	}
 
-	msgContent := fmt.Sprintf("`[%s - %s]` **%s** (%s) in %s on %s: \"%s\" `(%s)` | `Key: %s`",
+	msgContent := fmt.Sprintf("`[%s - %s]` **%s** (%s) in %s on %s: %s",
 		stream.StartTime.Format("15:04:05"),
 		endTime.Format("15:04:05"),
 		displayName,
@@ -238,8 +241,6 @@ func (h *Handler) transcribeAndUpdate(s *discordgo.Session, stream *guild.UserSt
 		channel.Name,
 		g.Name,
 		transcription,
-		duration,
-		stream.Filename,
 	)
 	_, _ = s.ChannelMessageEdit(stream.Message.ChannelID, stream.Message.ID, msgContent)
 }
