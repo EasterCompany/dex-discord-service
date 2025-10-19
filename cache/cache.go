@@ -30,6 +30,7 @@ type Cache interface {
 	GetAllGuildIDs() ([]string, error)
 	SaveAudio(key string, data []byte, ttl time.Duration) error
 	GetAudio(key string) ([]byte, error)
+	DeleteAudio(key string) error
 	CleanAllAudio() (CleanResult, error)
 	CleanAllMessages() (CleanResult, error)
 }
@@ -148,6 +149,10 @@ func (db *DB) SaveAudio(key string, data []byte, ttl time.Duration) error {
 
 func (db *DB) GetAudio(key string) ([]byte, error) {
 	return db.rdb.Get(db.ctx, db.prefixedKey(key)).Bytes()
+}
+
+func (db *DB) DeleteAudio(key string) error {
+	return db.rdb.Del(db.ctx, db.prefixedKey(key)).Err()
 }
 
 func (db *DB) cleanKeysByPattern(pattern string) (CleanResult, error) {

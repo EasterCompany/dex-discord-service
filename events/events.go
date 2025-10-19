@@ -233,6 +233,11 @@ func (h *Handler) transcribeAndUpdate(s *discordgo.Session, stream *guild.UserSt
 		return
 	}
 
+	// Delete the audio from the cache
+	if err := h.DB.DeleteAudio(h.GenerateAudioCacheKey(stream.Filename)); err != nil {
+		h.Logger.Error(fmt.Sprintf("Failed to delete audio from cache for key %s", stream.Filename), err)
+	}
+
 	if transcription == "" {
 		_ = s.ChannelMessageDelete(stream.Message.ChannelID, stream.Message.ID)
 		return
