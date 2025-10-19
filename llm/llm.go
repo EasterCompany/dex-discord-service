@@ -517,6 +517,8 @@ func (c *Client) processStream(s *discordgo.Session, triggeringMessage *discordg
 		cleanResponse = strings.TrimSpace(cleanResponse)
 	}
 
+	fmt.Printf("Cleaned LLM Response: %s\n", cleanResponse)
+
 	var response LLMResponse
 	thinkRegex := regexp.MustCompile(`(?s)<think>(.*?)<\/think>`)
 	sayRegex := regexp.MustCompile(`(?s)<say>(.*?)<\/say>`)
