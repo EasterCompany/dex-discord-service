@@ -450,9 +450,11 @@ func (c *Client) processStream(s *discordgo.Session, triggeringMessage *discordg
 				}
 
 				initialContent := currentBuffer[sayIndex+len("<say>"):]
-				_, err := s.ChannelMessageEdit(triggeringMessage.ChannelID, responseMessage.ID, initialContent)
-				if err != nil {
-					return fmt.Errorf("failed to edit message for streaming: %w", err)
+				if initialContent != "" {
+					_, err := s.ChannelMessageEdit(triggeringMessage.ChannelID, responseMessage.ID, initialContent)
+					if err != nil {
+						return fmt.Errorf("failed to edit message for streaming: %w", err)
+					}
 				}
 				lastEdit = time.Now()
 				currentState = stateStreamingSay
