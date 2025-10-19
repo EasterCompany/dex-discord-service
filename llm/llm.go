@@ -508,6 +508,8 @@ func (c *Client) processStream(s *discordgo.Session, triggeringMessage *discordg
 		rawResponse += "</response>"
 	}
 
+	fmt.Printf("Raw LLM Response: %s\n", rawResponse)
+
 	cleanResponse := strings.TrimSpace(rawResponse)
 	if strings.HasPrefix(cleanResponse, "```xml") {
 		cleanResponse = strings.TrimPrefix(cleanResponse, "```xml")
