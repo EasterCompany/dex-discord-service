@@ -25,7 +25,7 @@ func registerEventHandlers(s *discordgo.Session, eventHandler *events.Handler) {
 	s.AddHandler(eventHandler.MessageCreate)
 }
 
-func initCache(cfg *config.CacheConfig) (cache.Cache, cache.Cache) {
+func initCache(cfg *config.CacheConfig, logger logger.Logger) (cache.Cache, cache.Cache) {
 	localCache, err := cache.New(cfg.Local)
 	if err != nil {
 		// Log the error but don't exit; the bot can run without a cache in a degraded state.
@@ -63,9 +63,9 @@ func main() {
 		log.Fatalf(err.Error())
 	}
 
-	logger.Init(s, cfg.Discord.LogChannelID)
+	logger := logger.NewLogger(s, cfg.Discord.LogChannelID)
 
-	localCache, cloudCache := initCache(cfg.Cache)
+	localCache, cloudCache := initCache(cfg.Cache, logger)
 
 	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot, s)
 
@@ -90,7 +90,7 @@ func main() {
 	}
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized")
 
-	cleanupReport := performCleanup(s, localCache, cfg.Discord, bootMessageID)
+	cleanupReport := performCleanup(s, localCache, cfg.Discord, bootMessageID, logger)
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete")
 
 	if localCache != nil {
@@ -110,7 +110,7 @@ func main() {
 	}
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete\n✅ Guild states loaded")
 
-	performHealthCheck(s, localCache, cloudCache, cfg, bootMessageID, cleanupReport)
+	performHealthCheck(s, localCache, cloudCache, cfg, bootMessageID, cleanupReport, logger)
 
 	waitForShutdown()
 
@@ -140,7 +140,7 @@ func humanReadableBytes(b int64) string {
 }
 
 // performCleanup runs all boot-time cleanup tasks and returns a formatted report.
-func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *config.DiscordConfig, bootMessageID string) string {
+func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *config.DiscordConfig, bootMessageID string, logger logger.Logger) string {
 	var wg sync.WaitGroup
 	results := make(chan cleanup.Result, 3)
 
@@ -175,7 +175,7 @@ func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *co
 }
 
 // performHealthCheck runs final system checks and posts the final status message.
-func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache, cfg *config.AllConfig, bootMessageID, cleanupReport string) {
+func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache, cfg *config.AllConfig, bootMessageID, cleanupReport string, logger logger.Logger) {
 	cpuUsage, _ := system.GetCPUUsage()
 	memUsage, _ := system.GetMemoryUsage()
 	discordStatus := health.GetDiscordStatus(s)

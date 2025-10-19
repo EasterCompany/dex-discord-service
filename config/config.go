@@ -65,13 +65,15 @@ func getConfigPath(filename string) (string, error) {
 }
 
 func LoadAllConfigs() (*AllConfig, error) {
+	tmpLogger := logger.NewLogger(nil, "")
+
 	mainConfigPath, err := getConfigPath("config.json")
 	if err != nil {
 		return nil, err
 	}
 
 	mainConfig := &MainConfig{}
-	if err := loadOrCreate(mainConfigPath, mainConfig); err != nil {
+	if err := loadOrCreate(mainConfigPath, mainConfig, tmpLogger); err != nil {
 		return nil, fmt.Errorf("could not load main config: %w", err)
 	}
 
@@ -80,7 +82,7 @@ func LoadAllConfigs() (*AllConfig, error) {
 		return nil, err
 	}
 	discordConfig := &DiscordConfig{}
-	if err := loadOrCreate(discordConfigPath, discordConfig); err != nil {
+	if err := loadOrCreate(discordConfigPath, discordConfig, tmpLogger); err != nil {
 		return nil, fmt.Errorf("could not load discord config: %w", err)
 	}
 
@@ -89,7 +91,7 @@ func LoadAllConfigs() (*AllConfig, error) {
 		return nil, err
 	}
 	cacheConfig := &CacheConfig{}
-	if err := loadOrCreate(cacheConfigPath, cacheConfig); err != nil {
+	if err := loadOrCreate(cacheConfigPath, cacheConfig, tmpLogger); err != nil {
 		return nil, fmt.Errorf("could not load cache config: %w", err)
 	}
 
@@ -98,7 +100,7 @@ func LoadAllConfigs() (*AllConfig, error) {
 		return nil, err
 	}
 	botConfig := &BotConfig{}
-	if err := loadOrCreate(botConfigPath, botConfig); err != nil {
+	if err := loadOrCreate(botConfigPath, botConfig, tmpLogger); err != nil {
 		return nil, fmt.Errorf("could not load bot config: %w", err)
 	}
 
@@ -109,7 +111,7 @@ func LoadAllConfigs() (*AllConfig, error) {
 	}, nil
 }
 
-func loadOrCreate(path string, v interface{}) error {
+func loadOrCreate(path string, v interface{}, logger logger.Logger) error {
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
