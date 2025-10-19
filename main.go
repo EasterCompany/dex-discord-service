@@ -235,15 +235,15 @@ func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache
 
 	statusFields := []string{
 		"**System Status**",
-		fmt.Sprintf("<:cpu:1429533473365823628> CPU: `%.2f%%`", cpuUsage),
-		fmt.Sprintf("<:ram:1429533495633510461> Memory: `%.2f%%`", memUsage),
+		fmt.Sprintf("🖥️ CPU: `%.2f%%`", cpuUsage),
+		fmt.Sprintf("<:ram:1429533495633510461> MEM: `%.2f%%`", memUsage),
 		gpuInfoStr,
 		"",
 		"**Service Status**",
 		fmt.Sprintf("<:discord:1429533475303719013> Discord: %s", discordStatus),
+		fmt.Sprintf("🗣️ STT Client: %s", sttStatus),
 		fmt.Sprintf("<:redis:1429533496954585108> Local Cache: %s", localCacheStatus),
 		fmt.Sprintf("<:quickredis:1429533493934948362> Cloud Cache: %s", cloudCacheStatus),
-		fmt.Sprintf("🗣️ STT Client: %s", sttStatus),
 		"",
 		cleanupReport,
 		fmt.Sprintf("🧹 Audio Cache: `+%d (%s)` / `-%d (%s)`", 0, humanReadableBytes(0), audioCleanResult.Count, humanReadableBytes(audioCleanResult.BytesFreed)), // Added audio count is not tracked yet
