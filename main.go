@@ -16,6 +16,7 @@ import (
 	"github.com/EasterCompany/dex-discord-interface/health"
 	logger "github.com/EasterCompany/dex-discord-interface/log"
 	"github.com/EasterCompany/dex-discord-interface/session"
+	"github.com/EasterCompany/dex-discord-interface/stt"
 	"github.com/EasterCompany/dex-discord-interface/system"
 	"github.com/bwmarrin/discordgo"
 )
@@ -43,6 +44,14 @@ func initDiscord(token string) (*discordgo.Session, error) {
 	return s, nil
 }
 
+func initStt(logger logger.Logger) (*stt.Client, error) {
+	sttClient, err := stt.NewClient()
+	if err != nil {
+		return nil, fmt.Errorf("error creating STT client: %w", err)
+	}
+	return sttClient, nil
+}
+
 func loadConfig() (*config.AllConfig, error) {
 	cfg, err := config.LoadAllConfigs()
 	if err != nil {
@@ -68,7 +77,12 @@ func main() {
 
 	stateManager := events.NewStateManager()
 
-	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot, s, logger, stateManager)
+	sttClient, err := initStt(logger)
+	if err != nil {
+		logger.Error("Failed to initialize STT client", err)
+	}
+
+	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot, s, logger, stateManager, sttClient)
 
 	registerEventHandlers(s, eventHandler)
 
@@ -89,10 +103,10 @@ func main() {
 			logger.UpdateInitialMessage(bootMessageID, content)
 		}
 	}
-	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized")
+	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ STT client initialized")
 
 	cleanupReport := performCleanup(s, localCache, cfg.Discord, bootMessageID, logger)
-	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete")
+	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ STT client initialized\n✅ Cleanup complete")
 
 	if localCache != nil {
 		guildIDs, err := localCache.GetAllGuildIDs()
@@ -104,7 +118,7 @@ func main() {
 			}
 		}
 	}
-	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete\n✅ Guild states loaded")
+	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ STT client initialized\n✅ Cleanup complete\n✅ Guild states loaded")
 	performHealthCheck(s, localCache, cloudCache, cfg, bootMessageID, cleanupReport, logger)
 
 	waitForShutdown()

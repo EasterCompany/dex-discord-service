@@ -12,6 +12,7 @@ import (
 	"github.com/EasterCompany/dex-discord-interface/cache"
 	"github.com/EasterCompany/dex-discord-interface/config"
 	"github.com/EasterCompany/dex-discord-interface/guild"
+	"github.com/EasterCompany/dex-discord-interface/interfaces"
 	logger "github.com/EasterCompany/dex-discord-interface/log"
 	"github.com/bwmarrin/discordgo"
 	"github.com/pion/rtp"
@@ -39,10 +40,11 @@ type Handler struct {
 	Session      *discordgo.Session
 	Logger       logger.Logger
 	StateManager *StateManager
+	SttClient    interfaces.SpeechToText
 }
 
 // NewHandler creates a new event handler with its dependencies.
-func NewHandler(db cache.Cache, discordCfg *config.DiscordConfig, botCfg *config.BotConfig, s *discordgo.Session, logger logger.Logger, stateManager *StateManager) *Handler {
+func NewHandler(db cache.Cache, discordCfg *config.DiscordConfig, botCfg *config.BotConfig, s *discordgo.Session, logger logger.Logger, stateManager *StateManager, sttClient interfaces.SpeechToText) *Handler {
 	return &Handler{
 		DB:           db,
 		DiscordCfg:   discordCfg,
@@ -50,6 +52,7 @@ func NewHandler(db cache.Cache, discordCfg *config.DiscordConfig, botCfg *config
 		Session:      s,
 		Logger:       logger,
 		StateManager: stateManager,
+		SttClient:    sttClient,
 	}
 }
 
@@ -204,6 +207,37 @@ func (h *Handler) finalizeStream(s *discordgo.Session, guildID string, ssrc uint
 		stream.User.Username,
 		channel.Name,
 		g.Name,
+		duration,
+		stream.Filename,
+	)
+	_, _ = s.ChannelMessageEdit(stream.Message.ChannelID, stream.Message.ID, msgContent)
+
+	go h.transcribeAndUpdate(s, stream, g, channel, displayName, duration, endTime)
+}
+
+func (h *Handler) transcribeAndUpdate(s *discordgo.Session, stream *guild.UserStream, g *discordgo.Guild, channel *discordgo.Channel, displayName string, duration time.Duration, endTime time.Time) {
+	if h.SttClient == nil {
+		return
+	}
+
+	audio, err := h.DB.GetAudio(h.GenerateAudioCacheKey(stream.Filename))
+	if err != nil {
+		return
+	}
+
+	transcription, err := h.SttClient.Transcribe(audio)
+	if err != nil {
+		return
+	}
+
+	msgContent := fmt.Sprintf("`[%s - %s]` **%s** (%s) in %s on %s: \"%s\" `(%s)` | `Key: %s`",
+		stream.StartTime.Format("15:04:05"),
+		endTime.Format("15:04:05"),
+		displayName,
+		stream.User.Username,
+		channel.Name,
+		g.Name,
+		transcription,
 		duration,
 		stream.Filename,
 	)

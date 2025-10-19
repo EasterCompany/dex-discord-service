@@ -29,6 +29,7 @@ type Cache interface {
 	LoadGuildState(guildID string) (*guild.GuildState, error)
 	GetAllGuildIDs() ([]string, error)
 	SaveAudio(key string, data []byte, ttl time.Duration) error
+	GetAudio(key string) ([]byte, error)
 	CleanAllAudio() (CleanResult, error)
 	CleanAllMessages() (CleanResult, error)
 }
@@ -143,6 +144,10 @@ func (db *DB) GetAllGuildIDs() ([]string, error) {
 
 func (db *DB) SaveAudio(key string, data []byte, ttl time.Duration) error {
 	return db.rdb.Set(db.ctx, db.prefixedKey(key), data, ttl).Err()
+}
+
+func (db *DB) GetAudio(key string) ([]byte, error) {
+	return db.rdb.Get(db.ctx, db.prefixedKey(key)).Bytes()
 }
 
 func (db *DB) cleanKeysByPattern(pattern string) (CleanResult, error) {
