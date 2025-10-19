@@ -233,6 +233,11 @@ func (h *Handler) transcribeAndUpdate(s *discordgo.Session, stream *guild.UserSt
 		return
 	}
 
+	if transcription == "" {
+		_ = s.ChannelMessageDelete(stream.Message.ChannelID, stream.Message.ID)
+		return
+	}
+
 	msgContent := fmt.Sprintf("`[%s - %s]` **%s** (%s) in %s on %s: %s",
 		stream.StartTime.Format("15:04:05"),
 		endTime.Format("15:04:05"),
