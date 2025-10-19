@@ -476,6 +476,11 @@ func (c *Client) processStream(s *discordgo.Session, triggeringMessage *discordg
 	}
 
 	rawResponse := fullContent.String()
+	// Check for open <say> tag and close it if necessary
+	if strings.Contains(rawResponse, "<say>") && !strings.Contains(rawResponse, "</say>") {
+		rawResponse += "</say>"
+	}
+
 	cleanResponse := strings.TrimSpace(rawResponse)
 	if strings.HasPrefix(cleanResponse, "```xml") {
 		cleanResponse = strings.TrimPrefix(cleanResponse, "```xml")
