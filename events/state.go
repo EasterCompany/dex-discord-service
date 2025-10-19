@@ -8,7 +8,10 @@ import (
 
 // StateManager manages the state of all guilds.
 type StateManager struct {
-	guildStates sync.Map
+	guildStates        sync.Map
+	addedMessagesCount int
+	addedMessagesSize  int64
+	mu                 sync.Mutex // Mutex to protect addedMessagesCount and addedMessagesSize
 }
 
 // NewStateManager creates a new state manager.
@@ -34,4 +37,19 @@ func (sm *StateManager) GetOrStoreGuildState(guildID string) *guild.GuildState {
 // DeleteGuildState deletes the state for a given guild.
 func (sm *StateManager) DeleteGuildState(guildID string) {
 	sm.guildStates.Delete(guildID)
+}
+
+// SetAddedMessagesStats sets the statistics for messages added during initial sync.
+func (sm *StateManager) SetAddedMessagesStats(count int, size int64) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	sm.addedMessagesCount = count
+	sm.addedMessagesSize = size
+}
+
+// GetAddedMessagesStats returns the statistics for messages added during initial sync.
+func (sm *StateManager) GetAddedMessagesStats() (int, int64) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+	return sm.addedMessagesCount, sm.addedMessagesSize
 }

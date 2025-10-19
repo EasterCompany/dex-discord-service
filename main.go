@@ -22,7 +22,11 @@ import (
 )
 
 func registerEventHandlers(s *discordgo.Session, eventHandler *events.Handler) {
-	s.AddHandler(eventHandler.Ready)
+	s.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
+		addedMessagesCount, addedMessagesSize := eventHandler.Ready(s, r)
+		// Store these values for the health check report
+		eventHandler.StateManager.SetAddedMessagesStats(addedMessagesCount, addedMessagesSize)
+	})
 	s.AddHandler(eventHandler.MessageCreate)
 }
 
@@ -89,7 +93,7 @@ func main() {
 		logger.Fatal("Error opening connection to Discord", err)
 	}
 
-	bootMessage, err := logger.PostInitialMessage("`Dexter` is starting up...")
+	bootMessage, err := logger.PostInitialMessage("Dexter is starting up...")
 	if err != nil {
 		logger.Error("Failed to post initial boot message", err)
 	}
@@ -102,10 +106,17 @@ func main() {
 			logger.UpdateInitialMessage(bootMessageID, content)
 		}
 	}
-	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ STT client initialized")
+	updateBootMessage(`Dexter is starting up...
+✅ Discord connection established
+✅ Caches initialized
+✅ STT client initialized`)
 
-	cleanupReport := performCleanup(s, localCache, cfg.Discord, bootMessageID, logger)
-	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ STT client initialized\n✅ Cleanup complete")
+	cleanupReport, audioCleanResult, messageCleanResult := performCleanup(s, localCache, cfg.Discord, bootMessageID, logger)
+	updateBootMessage(`Dexter is starting up...
+✅ Discord connection established
+✅ Caches initialized
+✅ STT client initialized
+✅ Cleanup complete`)
 
 	if localCache != nil {
 		guildIDs, err := localCache.GetAllGuildIDs()
@@ -117,13 +128,18 @@ func main() {
 			}
 		}
 	}
-	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ STT client initialized\n✅ Cleanup complete\n✅ Guild states loaded")
-	performHealthCheck(s, localCache, cloudCache, cfg, bootMessageID, cleanupReport, logger)
+	updateBootMessage(`Dexter is starting up...
+✅ Discord connection established
+✅ Caches initialized
+✅ STT client initialized
+✅ Cleanup complete
+✅ Guild states loaded`)
+	performHealthCheck(s, localCache, cloudCache, cfg, bootMessageID, cleanupReport, audioCleanResult, messageCleanResult, sttClient, stateManager, logger)
 
 	waitForShutdown()
 
 	_ = s.Close()
-	fmt.Println("\nBot shutting down.")
+	fmt.Println("Bot shutting down.")
 }
 
 func waitForShutdown() {
@@ -148,7 +164,7 @@ func humanReadableBytes(b int64) string {
 }
 
 // performCleanup runs all boot-time cleanup tasks and returns a formatted report.
-func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *config.DiscordConfig, bootMessageID string, logger logger.Logger) string {
+func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *config.DiscordConfig, bootMessageID string, logger logger.Logger) (string, cache.CleanResult, cache.CleanResult) {
 	var wg sync.WaitGroup
 	results := make(chan cleanup.Result, 3)
 
@@ -180,33 +196,58 @@ func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *co
 
 	reportFields := []string{
 		"**House Keeping**",
-		fmt.Sprintf("🧹 Logs Channel: `%d` logs removed.", cleanupStats["ClearLogs"]),
-		fmt.Sprintf("🧹 Transcriptions Channel: `%d` transcriptions removed.", cleanupStats["ClearTranscriptions"]+cleanupStats["CleanStaleMessages"]),
-		fmt.Sprintf("🧹 Audio Cache: `%s` (%d values) freed.", humanReadableBytes(audioCleanResult.BytesFreed), audioCleanResult.Count),
-		fmt.Sprintf("🧹 Message Cache: `%s` (%d values) freed.", humanReadableBytes(messageCleanResult.BytesFreed), messageCleanResult.Count),
+		fmt.Sprintf("🧹 Logs: `%d` removed.", cleanupStats["ClearLogs"]),
+		fmt.Sprintf("🧹 Transcriptions: `%d` removed.", cleanupStats["ClearTranscriptions"]+cleanupStats["CleanStaleMessages"]),
 	}
-	return strings.Join(reportFields, "\n")
+	return strings.Join(reportFields, "\n"), audioCleanResult, messageCleanResult
 }
 
 // performHealthCheck runs final system checks and posts the final status message.
-func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache, cfg *config.AllConfig, bootMessageID, cleanupReport string, logger logger.Logger) {
+func performHealthCheck(s *discordgo.Session, localCache, cloudCache cache.Cache, cfg *config.AllConfig, bootMessageID, cleanupReport string, audioCleanResult, messageCleanResult cache.CleanResult, sttClient *stt.Client, stateManager *events.StateManager, logger logger.Logger) {
 	cpuUsage, _ := system.GetCPUUsage()
 	memUsage, _ := system.GetMemoryUsage()
 	discordStatus := health.GetDiscordStatus(s)
 	localCacheStatus := health.GetCacheStatus(localCache, cfg.Cache.Local)
 	cloudCacheStatus := health.GetCacheStatus(cloudCache, cfg.Cache.Cloud)
+	sttStatus := health.GetSTTStatus(sttClient)
+
+	gpuStatus, gpuInfo := health.GetGPUStatus()
+
+	var gpuInfoStr string
+	if gpuInfo != nil {
+		gpuInfoStr = fmt.Sprintf(`<:gpu:1429531622478184478> GPU Util: `+"`%.2f%%`"+`
+<:gpu:1429531622478184478> GPU Mem: `+"`%.2f%% (%.1fGB / %.1fGB)`",
+			gpuInfo.Utilization,
+			(gpuInfo.MemoryUsed/gpuInfo.MemoryTotal)*100,
+			gpuInfo.MemoryUsed/1024,
+			gpuInfo.MemoryTotal/1024,
+		)
+	} else {
+		if gpuStatus != "" {
+			gpuInfoStr = fmt.Sprintf("❌ GPU: %s", gpuStatus)
+		} else {
+			gpuInfoStr = `<:gpu:1429531622478184478> GPU Util: ` + "`-/-`" + `
+<:gpu:1429531622478184478> GPU Mem: ` + "`-/-`"
+		}
+	}
+
+	addedMessagesCount, addedMessagesSize := stateManager.GetAddedMessagesStats()
 
 	statusFields := []string{
 		"**System Status**",
-		fmt.Sprintf("💻 CPU: `%.2f%%`", cpuUsage),
-		fmt.Sprintf("🧠 Memory: `%.2f%%`", memUsage),
+		fmt.Sprintf("<:cpu:1429533473365823628> CPU: `%.2f%%`", cpuUsage),
+		fmt.Sprintf("<:ram:1429533495633510461> Memory: `%.2f%%`", memUsage),
+		gpuInfoStr,
 		"",
 		"**Service Status**",
-		fmt.Sprintf("🤖 Discord: %s", discordStatus),
-		fmt.Sprintf("🏠 Local Cache: %s", localCacheStatus),
-		fmt.Sprintf("☁️ Cloud Cache: %s", cloudCacheStatus),
+		fmt.Sprintf("<:discord:1429533475303719013> Discord: %s", discordStatus),
+		fmt.Sprintf("<:redis:1429533496954585108> Local Cache: %s", localCacheStatus),
+		fmt.Sprintf("<:quickredis:1429533493934948362> Cloud Cache: %s", cloudCacheStatus),
+		fmt.Sprintf("🗣️ STT Client: %s", sttStatus),
 		"",
 		cleanupReport,
+		fmt.Sprintf("🧹 Audio Cache: `+%d (%s)` / `-%d (%s)`", 0, humanReadableBytes(0), audioCleanResult.Count, humanReadableBytes(audioCleanResult.BytesFreed)), // Added audio count is not tracked yet
+		fmt.Sprintf("🧹 Message Cache: `+%d (%s)` / `-%d (%s)`", addedMessagesCount, humanReadableBytes(addedMessagesSize), messageCleanResult.Count, humanReadableBytes(messageCleanResult.BytesFreed)),
 	}
 
 	finalStatus := strings.Join(statusFields, "\n")
