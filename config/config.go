@@ -71,11 +71,7 @@ func LoadAllConfigs() (*AllConfig, error) {
 	}
 
 	mainConfig := &MainConfig{}
-	if err := loadOrCreate(mainConfigPath, mainConfig, &MainConfig{
-		DiscordConfigPath: "discord.json",
-		CacheConfigPath:   "cache.json",
-		BotConfigPath:     "bot.json",
-	}); err != nil {
+	if err := loadOrCreate(mainConfigPath, mainConfig); err != nil {
 		return nil, fmt.Errorf("could not load main config: %w", err)
 	}
 
@@ -84,12 +80,7 @@ func LoadAllConfigs() (*AllConfig, error) {
 		return nil, err
 	}
 	discordConfig := &DiscordConfig{}
-	if err := loadOrCreate(discordConfigPath, discordConfig, &DiscordConfig{
-		Token:                  "",
-		HomeServerID:           "",
-		LogChannelID:           "",
-		TranscriptionChannelID: "",
-	}); err != nil {
+	if err := loadOrCreate(discordConfigPath, discordConfig); err != nil {
 		return nil, fmt.Errorf("could not load discord config: %w", err)
 	}
 
@@ -98,10 +89,7 @@ func LoadAllConfigs() (*AllConfig, error) {
 		return nil, err
 	}
 	cacheConfig := &CacheConfig{}
-	if err := loadOrCreate(cacheConfigPath, cacheConfig, &CacheConfig{
-		Local: &ConnectionConfig{Addr: "localhost:6379", Username: "", Password: "", DB: 0},
-		Cloud: &ConnectionConfig{Addr: "", Username: "", Password: "", DB: 0},
-	}); err != nil {
+	if err := loadOrCreate(cacheConfigPath, cacheConfig); err != nil {
 		return nil, fmt.Errorf("could not load cache config: %w", err)
 	}
 
@@ -110,10 +98,7 @@ func LoadAllConfigs() (*AllConfig, error) {
 		return nil, err
 	}
 	botConfig := &BotConfig{}
-	if err := loadOrCreate(botConfigPath, botConfig, &BotConfig{
-		VoiceTimeoutSeconds: 2,
-		AudioTTLMinutes:     10,
-	}); err != nil {
+	if err := loadOrCreate(botConfigPath, botConfig); err != nil {
 		return nil, fmt.Errorf("could not load bot config: %w", err)
 	}
 
@@ -124,7 +109,7 @@ func LoadAllConfigs() (*AllConfig, error) {
 	}, nil
 }
 
-func loadOrCreate(path string, v interface{}, defaultConfig interface{}) error {
+func loadOrCreate(path string, v interface{}) error {
 	file, err := os.Open(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -132,7 +117,7 @@ func loadOrCreate(path string, v interface{}, defaultConfig interface{}) error {
 			if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 				return fmt.Errorf("could not create directory for config file at %s: %w", path, err)
 			}
-			return createDefaultConfig(path, defaultConfig)
+			return createDefaultConfig(path)
 		}
 		return fmt.Errorf("could not open config file at %s: %w", path, err)
 	}
@@ -145,18 +130,24 @@ func loadOrCreate(path string, v interface{}, defaultConfig interface{}) error {
 		if err := os.Rename(path, backupPath); err != nil {
 			return fmt.Errorf("failed to backup outdated config at %s: %w", path, err)
 		}
-		return createDefaultConfig(path, defaultConfig)
+		return createDefaultConfig(path)
 	}
 	return nil
 }
 
-func createDefaultConfig(path string, defaultConfig interface{}) error {
+func createDefaultConfig(path string) error {
+	defaultPath := strings.Replace(path, ".json", ".default.json", 1)
+	defaultConfig, err := os.ReadFile(defaultPath)
+	if err != nil {
+		return fmt.Errorf("could not read default config file at %s: %w", defaultPath, err)
+	}
+
 	file, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("could not create config file at %s: %w", path, err)
 	}
 	defer file.Close()
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(defaultConfig)
+
+	_, err = file.Write(defaultConfig)
+	return err
 }
