@@ -20,46 +20,61 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// main orchestrates the bot's startup, operation, and graceful shutdown.
-func main() {
-	// 1. Load Configuration
-	cfg, err := config.LoadAllConfigs()
-	if err != nil {
-		log.Fatalf("Fatal error loading config: %v", err)
-	}
+func registerEventHandlers(s *discordgo.Session, eventHandler *events.Handler) {
+	s.AddHandler(eventHandler.Ready)
+	s.AddHandler(eventHandler.MessageCreate)
+}
 
-	// 2. Initialize Discord Session
-	s, err := session.NewSession(cfg.Discord.Token)
-	if err != nil {
-		log.Fatalf("Error creating Discord session: %v", err)
-	}
-
-	// 3. Initialize Logger
-	logger.Init(s, cfg.Discord.LogChannelID)
-
-	// 4. Initialize Cache Service (before handlers)
-	localCache, err := cache.New(cfg.Cache.Local)
+func initCache(cfg *config.CacheConfig) (cache.Cache, cache.Cache) {
+	localCache, err := cache.New(cfg.Local)
 	if err != nil {
 		// Log the error but don't exit; the bot can run without a cache in a degraded state.
 		logger.Error("Failed to initialize local cache", err)
 	}
-	cloudCache, _ := cache.New(cfg.Cache.Cloud) // For health check
+	cloudCache, _ := cache.New(cfg.Cloud) // For health check
+	return localCache, cloudCache
+}
 
-	// 5. Create Event Handler with all dependencies
+func initDiscord(token string) (*discordgo.Session, error) {
+	s, err := session.NewSession(token)
+	if err != nil {
+		return nil, fmt.Errorf("Error creating Discord session: %w", err)
+	}
+	return s, nil
+}
+
+func loadConfig() (*config.AllConfig, error) {
+	cfg, err := config.LoadAllConfigs()
+	if err != nil {
+		return nil, fmt.Errorf("Fatal error loading config: %w", err)
+	}
+	return cfg, nil
+}
+
+// main orchestrates the bot's startup, operation, and graceful shutdown.
+func main() {
+	cfg, err := loadConfig()
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	s, err := initDiscord(cfg.Discord.Token)
+	if err != nil {
+		log.Fatalf(err.Error())
+	}
+
+	logger.Init(s, cfg.Discord.LogChannelID)
+
+	localCache, cloudCache := initCache(cfg.Cache)
+
 	eventHandler := events.NewHandler(localCache, cfg.Discord, cfg.Bot, s)
 
-	// 6. Register Event Handlers
-	s.AddHandler(eventHandler.Ready)
-	s.AddHandler(eventHandler.MessageCreate)
-	
+	registerEventHandlers(s, eventHandler)
 
-	
-	// 7. Connect to Discord
 	if err = s.Open(); err != nil {
 		logger.Fatal("Error opening connection to Discord", err)
 	}
 
-	// 8. Post Initial Boot Message (this will now work correctly)
 	bootMessage, err := logger.PostInitialMessage("`Dexter` is starting up...")
 	if err != nil {
 		logger.Error("Failed to post initial boot message", err)
@@ -75,11 +90,9 @@ func main() {
 	}
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized")
 
-	// 9. Perform Boot-time Cleanup
 	cleanupReport := performCleanup(s, localCache, cfg.Discord, bootMessageID)
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete")
 
-	// 10. Load Persistent State
 	if localCache != nil {
 		guildIDs, err := localCache.GetAllGuildIDs()
 		if err != nil {
@@ -97,18 +110,19 @@ func main() {
 	}
 	updateBootMessage("`Dexter` is starting up...\n✅ Discord connection established\n✅ Caches initialized\n✅ Cleanup complete\n✅ Guild states loaded")
 
-	// 11. Final Health Check and Ready Message
 	performHealthCheck(s, localCache, cloudCache, cfg, bootMessageID, cleanupReport)
 
-	// 12. Wait for shutdown signal
+	waitForShutdown()
+
+	s.Close()
+	fmt.Println("\nBot shutting down.")
+}
+
+func waitForShutdown() {
 	fmt.Println("Bot is now running. Press CTRL-C to exit.")
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, syscall.SIGINT, syscall.SIGTERM, os.Interrupt)
 	<-sc
-
-	// Cleanly close down
-	s.Close()
-	fmt.Println("\nBot shutting down.")
 }
 
 // humanReadableBytes converts a size in bytes to a human-readable string.
