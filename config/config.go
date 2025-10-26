@@ -41,8 +41,10 @@ type ConnectionConfig struct {
 }
 
 type BotConfig struct {
-	VoiceTimeoutSeconds int `json:"voice_timeout_seconds"`
-	AudioTTLMinutes     int `json:"audio_ttl_minutes"`
+	VoiceTimeoutSeconds int    `json:"voice_timeout_seconds"`
+	AudioTTLMinutes     int    `json:"audio_ttl_minutes"`
+	EngagementModel     string `json:"engagement_model"`
+	ConversationalModel string `json:"conversational_model"`
 }
 
 type GcloudConfig struct {

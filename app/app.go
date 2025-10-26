@@ -54,7 +54,7 @@ func NewApp() (*App, error) {
 		appLogger.Error("Failed to initialize STT client", err)
 	}
 
-	llmClient, err := llm.NewClient(cfg.Persona, localCache)
+	llmClient, err := llm.NewClient(cfg.Persona, cfg.Bot, localCache)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize LLM client: %w", err)
 	}

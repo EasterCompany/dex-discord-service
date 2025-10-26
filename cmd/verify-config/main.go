@@ -80,8 +80,10 @@ func main() {
 			FileName: "bot.json",
 			Path:     filepath.Join(configDir, "bot.json"),
 			Model: struct {
-				VoiceTimeoutSeconds int `json:"voice_timeout_seconds"`
-				AudioTTLMinutes     int `json:"audio_ttl_minutes"`
+				VoiceTimeoutSeconds int    `json:"voice_timeout_seconds"`
+				AudioTTLMinutes     int    `json:"audio_ttl_minutes"`
+				EngagementModel     string `json:"engagement_model"`
+				ConversationalModel string `json:"conversational_model"`
 			}{},
 		},
 		{

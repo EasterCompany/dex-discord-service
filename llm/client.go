@@ -13,30 +13,33 @@ import (
 	"time"
 
 	"github.com/EasterCompany/dex-discord-interface/cache"
+	"github.com/EasterCompany/dex-discord-interface/config"
 	"github.com/EasterCompany/dex-discord-interface/interfaces"
 	"github.com/bwmarrin/discordgo"
 )
 
 type Client struct {
-	httpClient   *http.Client
-	OllamaURL    string
-	Model        string
-	SystemPrompt string
-	Cache        cache.Cache
+	httpClient          *http.Client
+	LLMServerURL        string
+	EngagementModel     string
+	ConversationalModel string
+	SystemPrompt        string
+	Cache               cache.Cache
 }
 
-func NewClient(persona *interfaces.Persona, cache cache.Cache) (*Client, error) {
+func NewClient(persona *interfaces.Persona, botConfig *config.BotConfig, cache cache.Cache) (*Client, error) {
 	systemPrompt, err := createSystemMessage(persona)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create system message: %w", err)
 	}
 
 	return &Client{
-		httpClient:   &http.Client{},
-		OllamaURL:    "http://localhost:11434/api/chat",
-		Model:        "dolphin3:latest",
-		SystemPrompt: systemPrompt,
-		Cache:        cache,
+		httpClient:          &http.Client{},
+		LLMServerURL:        "http://localhost:11434/api/chat",
+		EngagementModel:     botConfig.EngagementModel,
+		ConversationalModel: botConfig.ConversationalModel,
+		SystemPrompt:        systemPrompt,
+		Cache:               cache,
 	}, nil
 }
 
@@ -63,13 +66,13 @@ type Message struct {
 	Content string `json:"content"`
 }
 
-type OllamaRequest struct {
+type LLMServerRequest struct {
 	Model    string    `json:"model"`
 	Messages []Message `json:"messages"`
 	Stream   bool      `json:"stream"`
 }
 
-type OllamaResponse struct {
+type LLMServerResponse struct {
 	Model     string    `json:"model"`
 	CreatedAt time.Time `json:"created_at"`
 	Message   Message   `json:"message"`
@@ -115,8 +118,8 @@ func (c *Client) ShouldEngage(s *discordgo.Session, m *discordgo.MessageCreate, 
 		return false, fmt.Errorf("failed to execute engagement check template: %w", err)
 	}
 
-	request := OllamaRequest{
-		Model: c.Model,
+	request := LLMServerRequest{
+		Model: c.EngagementModel,
 		Messages: []Message{
 			{Role: "user", Content: promptBuf.String()},
 		},
@@ -128,7 +131,7 @@ func (c *Client) ShouldEngage(s *discordgo.Session, m *discordgo.MessageCreate, 
 		return false, fmt.Errorf("failed to marshal engagement request: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), "POST", c.OllamaURL, bytes.NewBuffer(payload))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", c.LLMServerURL, bytes.NewBuffer(payload))
 	if err != nil {
 		return false, fmt.Errorf("failed to create engagement request: %w", err)
 	}
@@ -136,19 +139,19 @@ func (c *Client) ShouldEngage(s *discordgo.Session, m *discordgo.MessageCreate, 
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return false, fmt.Errorf("failed to send engagement request to ollama: %w", err)
+		return false, fmt.Errorf("failed to send engagement request to LLM server: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("ollama returned non-200 status for engagement check: %s", resp.Status)
+		return false, fmt.Errorf("LLM server returned non-200 status for engagement check: %s", resp.Status)
 	}
 
-	var ollamaResp OllamaResponse
-	if err := json.NewDecoder(resp.Body).Decode(&ollamaResp); err != nil {
+	var llmResp LLMServerResponse
+	if err := json.NewDecoder(resp.Body).Decode(&llmResp); err != nil {
 		return false, fmt.Errorf("failed to decode engagement response: %w", err)
 	}
 
-	return strings.TrimSpace(ollamaResp.Message.Content) == "ENGAGE", nil
+	return strings.TrimSpace(llmResp.Message.Content) == "ENGAGE", nil
 }
 
 type ContextBlock struct {
@@ -214,7 +217,7 @@ func (c *Client) GenerateContextBlock(s *discordgo.Session, m *discordgo.Message
 }
 
 func (c *Client) CreateOllamaPayload(messages []*discordgo.Message, contextBlock string) ([]byte, error) {
-	ollamaMessages := []Message{
+	llmMessages := []Message{
 		{
 			Role:    "system",
 			Content: c.SystemPrompt,
@@ -230,15 +233,15 @@ func (c *Client) CreateOllamaPayload(messages []*discordgo.Message, contextBlock
 		if msg.Author.Bot {
 			role = "assistant"
 		}
-		ollamaMessages = append(ollamaMessages, Message{
+		llmMessages = append(llmMessages, Message{
 			Role:    role,
 			Content: msg.Content,
 		})
 	}
 
-	request := OllamaRequest{
-		Model:    c.Model,
-		Messages: ollamaMessages,
+	request := LLMServerRequest{
+		Model:    c.ConversationalModel,
+		Messages: llmMessages,
 		Stream:   true,
 	}
 
@@ -248,10 +251,10 @@ func (c *Client) CreateOllamaPayload(messages []*discordgo.Message, contextBlock
 func (c *Client) StreamChatCompletion(s *discordgo.Session, triggeringMessage *discordgo.Message, messages []*discordgo.Message, contextBlock string) error {
 	payload, err := c.CreateOllamaPayload(messages, contextBlock)
 	if err != nil {
-		return fmt.Errorf("failed to create ollama payload: %w", err)
+		return fmt.Errorf("failed to create LLM server payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), "POST", c.OllamaURL, bytes.NewBuffer(payload))
+	req, err := http.NewRequestWithContext(context.Background(), "POST", c.LLMServerURL, bytes.NewBuffer(payload))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
@@ -259,13 +262,13 @@ func (c *Client) StreamChatCompletion(s *discordgo.Session, triggeringMessage *d
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send request to ollama: %w", err)
+		return fmt.Errorf("failed to send request to LLM server: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("ollama returned non-200 status: %s, body: %s", resp.Status, string(body))
+		return fmt.Errorf("LLM server returned non-200 status: %s, body: %s", resp.Status, string(body))
 	}
 
 	return c.processStream(s, triggeringMessage, resp.Body)
