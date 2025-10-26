@@ -75,13 +75,6 @@ type OllamaResponse struct {
 	Done      bool      `json:"done"`
 }
 
-type OllamaStreamResponse struct {
-	Model     string    `json:"model"`
-	CreatedAt time.Time `json:"created_at"`
-	Message   Message   `json:"message"`
-	Done      bool      `json:"done"`
-}
-
 type EngagementCheckContext struct {
 	Guild   *discordgo.Guild
 	Channel *discordgo.Channel
