@@ -4,23 +4,102 @@ package health
 import (
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/EasterCompany/dex-discord-interface/cache"
 	"github.com/EasterCompany/dex-discord-interface/config"
 	"github.com/EasterCompany/dex-discord-interface/interfaces"
+	logger "github.com/EasterCompany/dex-discord-interface/log"
 	"github.com/EasterCompany/dex-discord-interface/system"
 	"github.com/bwmarrin/discordgo"
 )
 
-// GetOllamaStatus checks and returns the status of the Ollama server as a formatted string.
-func GetOllamaStatus() string {
+// GetFormattedCachedDMs returns a slice of strings, each containing the formatted name of a cached DM channel and its message count.
+func GetFormattedCachedDMs(s *discordgo.Session, c cache.Cache, logger logger.Logger) []string {
+	if c == nil {
+		return []string{"**Cached DMs**", "Cache not configured"}
+	}
+	keys, err := c.GetAllMessageCacheKeys()
+	if err != nil {
+		return []string{"**Cached DMs**", "Error getting keys"}
+	}
+
+	if len(keys) == 0 {
+		return []string{"**Cached DMs**", "No DMs cached"}
+	}
+
+	dmStrings := []string{"**Cached DMs**"}
+	for _, key := range keys {
+		if !strings.Contains(key, ":dm:") {
+			continue
+		}
+		parts := strings.Split(key, ":")
+		channelID := parts[len(parts)-1]
+		ch, err := s.Channel(channelID)
+		if err != nil {
+			continue
+		}
+
+		name := ch.Name
+		if ch.Type == discordgo.ChannelTypeDM && len(ch.Recipients) > 0 {
+			name = ch.Recipients[0].Username
+		}
+
+		count, err := c.GetMessageCount(key)
+		if err != nil {
+			continue
+		}
+
+		dmStrings = append(dmStrings, fmt.Sprintf("%s (%d)", name, count))
+	}
+	return dmStrings
+}
+
+// GetFormattedCachedChannels returns a slice of strings, each containing the formatted name of a cached channel and its message count.
+func GetFormattedCachedChannels(s *discordgo.Session, c cache.Cache, logger logger.Logger) []string {
+	if c == nil {
+		return []string{"**Cached Channels**", "Cache not configured"}
+	}
+	keys, err := c.GetAllMessageCacheKeys()
+	if err != nil {
+		return []string{"**Cached Channels**", "Error getting keys"}
+	}
+
+	if len(keys) == 0 {
+		return []string{"**Cached Channels**", "No channels cached"}
+	}
+
+	channelStrings := []string{"**Cached Channels**"}
+	for _, key := range keys {
+		if !strings.Contains(key, ":guild:") {
+			continue
+		}
+		parts := strings.Split(key, ":")
+		channelID := parts[len(parts)-1]
+		ch, err := s.Channel(channelID)
+		if err != nil {
+			continue
+		}
+
+		count, err := c.GetMessageCount(key)
+		if err != nil {
+			continue
+		}
+
+		channelStrings = append(channelStrings, fmt.Sprintf("%s (%d)", ch.Name, count))
+	}
+	return channelStrings
+}
+
+// GetLLMServerStatus checks and returns the status of the LLM server as a formatted string.
+func GetLLMServerStatus() string {
 	resp, err := http.Get("http://localhost:11434")
 	if err != nil {
-		return fmt.Sprintf("**ERROR**: `%v`", err)
+		return fmt.Sprintf("**ERROR** `%v`", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Sprintf("**ERROR**: `Status: %s`", resp.Status)
+		return fmt.Sprintf("**ERROR** `Status: %s`", resp.Status)
 	}
 	return "**OK**"
 }
@@ -31,7 +110,7 @@ func GetDiscordStatus(s *discordgo.Session) string {
 		return "**OK**"
 	}
 	if err := s.Open(); err != nil {
-		return fmt.Sprintf("**ERROR**: `%v`", err)
+		return fmt.Sprintf("**ERROR** `%v`", err)
 	}
 	return "**OK** (reconnected)"
 }
@@ -42,10 +121,10 @@ func GetCacheStatus(c cache.Cache, cfg *config.ConnectionConfig) string {
 		return "`Not Configured`"
 	}
 	if c == nil {
-		return "**ERROR**: `Initialization failed`"
+		return "**ERROR** `Initialization failed`"
 	}
 	if err := c.Ping(); err != nil {
-		return fmt.Sprintf("**ERROR**: `%v`", err)
+		return fmt.Sprintf("**ERROR** `%v`", err)
 	}
 	return "**OK**"
 }
@@ -53,7 +132,7 @@ func GetCacheStatus(c cache.Cache, cfg *config.ConnectionConfig) string {
 // GetSTTStatus checks and returns the status of the STT client as a formatted string.
 func GetSTTStatus(sttClient interfaces.SpeechToText) string {
 	if sttClient == nil {
-		return "**ERROR**: `Initialization failed`"
+		return "**ERROR** `Initialization failed`"
 	}
 	// The STT client doesn't have a built-in ping, so we assume it's OK if it initialized.
 	return "**OK**"
@@ -67,13 +146,13 @@ func GetGPUStatus() ([]system.GPUInfo, error) {
 
 	info, err := system.GetGPUInfo()
 	if err != nil {
-		return nil, fmt.Errorf("**ERROR**: `%v`", err)
+		return nil, fmt.Errorf("**ERROR** `%v`", err)
 	}
 	return info, nil
 }
 
-// GetActiveGuilds returns a map of guild names to guild IDs.
-func GetActiveGuilds(s *discordgo.Session) map[string]string {
+// GetActiveServers returns a map of server names to server IDs.
+func GetActiveServers(s *discordgo.Session) map[string]string {
 	guilds := make(map[string]string)
 	for _, guild := range s.State.Guilds {
 		guilds[guild.Name] = guild.ID
@@ -124,15 +203,15 @@ func GetActiveVoiceSessions(s *discordgo.Session) map[string]string {
 	return sessions
 }
 
-// GetFormattedActiveGuilds returns a slice of strings, each containing the formatted name of an active guild.
-func GetFormattedActiveGuilds(s *discordgo.Session) []string {
-	guilds := GetActiveGuilds(s)
-	var guildStrings []string
-	if len(guilds) > 0 {
-		guildStrings = append(guildStrings, "**Active Guilds**")
-		for name := range guilds {
-			guildStrings = append(guildStrings, fmt.Sprintf("🌐 %s", name))
+// GetFormattedActiveServers returns a slice of strings, each containing the formatted name of an active server.
+func GetFormattedActiveServers(s *discordgo.Session) []string {
+	servers := GetActiveServers(s)
+	var serverStrings []string
+	if len(servers) > 0 {
+		serverStrings = append(serverStrings, "**Active Servers**")
+		for name := range servers {
+			serverStrings = append(serverStrings, fmt.Sprintf("🌐 %s", name))
 		}
 	}
-	return guildStrings
+	return serverStrings
 }

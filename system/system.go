@@ -2,44 +2,103 @@
 package system
 
 import (
+	"encoding/json"
 	"fmt"
+	"os/exec"
+	"sort"
 
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
 )
 
-type DiskInfo struct {
-	Path        string
+type StorageInfo struct {
+	Device      string
+	MountPoint  string
 	Total       uint64
 	Used        uint64
-	Free        uint64
 	UsedPercent float64
 }
 
-func GetDiskInfo() ([]DiskInfo, error) {
-	partitions, err := disk.Partitions(false)
+type lsblkOutput struct {
+	BlockDevices []lsblkDevice `json:"blockdevices"`
+}
+
+type lsblkDevice struct {
+	Name        string        `json:"name"`
+	MountPoints []string      `json:"mountpoints"`
+	Size        uint64        `json:"size"`
+	Type        string        `json:"type"`
+	Children    []lsblkDevice `json:"children"`
+}
+
+func GetStorageInfo() ([]StorageInfo, error) {
+	cmd := exec.Command("lsblk", "-Jb", "-o", "NAME,MOUNTPOINTS,SIZE,TYPE")
+	output, err := cmd.Output()
 	if err != nil {
-		return nil, fmt.Errorf("failed to get disk partitions: %w", err)
+		return nil, fmt.Errorf("failed to run lsblk: %w", err)
 	}
 
-	var disks []DiskInfo
-	for _, p := range partitions {
-		usage, err := disk.Usage(p.Mountpoint)
-		if err != nil {
-			// Log the error but continue with other partitions
-			fmt.Printf("Error getting disk usage for %s: %v\n", p.Mountpoint, err)
-			continue
-		}
-		disks = append(disks, DiskInfo{
-			Path:        p.Mountpoint,
-			Total:       usage.Total,
-			Used:        usage.Used,
-			Free:        usage.Free,
-			UsedPercent: usage.UsedPercent,
-		})
+	var lsblkOut lsblkOutput
+	if err := json.Unmarshal(output, &lsblkOut); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal lsblk output: %w", err)
 	}
-	return disks, nil
+
+	var storageDevices []StorageInfo
+	deviceProcessed := make(map[string]bool)
+
+	for _, device := range lsblkOut.BlockDevices {
+		if device.Type == "disk" {
+			for _, child := range device.Children {
+				if deviceProcessed[child.Name] {
+					continue
+				}
+				if len(child.MountPoints) > 0 {
+					mountPoint := getBestMountPoint(child.MountPoints)
+					if mountPoint != "" {
+						storageDevices = append(storageDevices, processDevice(child, mountPoint))
+						deviceProcessed[child.Name] = true
+					}
+				}
+			}
+		}
+	}
+
+	return storageDevices, nil
+}
+
+func getBestMountPoint(mounts []string) string {
+	if len(mounts) == 0 {
+		return ""
+	}
+
+	// Prefer the root mount point
+	for _, m := range mounts {
+		if m == "/" {
+			return "/"
+		}
+	}
+
+	// Otherwise, return the shortest mount point path
+	sort.Strings(mounts)
+	return mounts[0]
+}
+
+func processDevice(device lsblkDevice, mountPoint string) StorageInfo {
+	info := StorageInfo{
+		Device:     device.Name,
+		MountPoint: mountPoint,
+		Total:      device.Size,
+	}
+
+	if info.MountPoint != "" {
+		usage, err := disk.Usage(info.MountPoint)
+		if err == nil {
+			info.Used = usage.Used
+			info.UsedPercent = usage.UsedPercent
+		}
+	}
+	return info
 }
 
 type SysInfo struct {

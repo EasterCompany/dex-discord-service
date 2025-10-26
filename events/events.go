@@ -134,6 +134,11 @@ func (h *Handler) fetchAndStoreLast50Messages(s *discordgo.Session, guildID, cha
 	return len(messages), totalSize
 }
 
+func (h *Handler) ChannelCreate(s *discordgo.Session, c *discordgo.ChannelCreate) {
+	// This handler is intentionally left empty.
+	// Registering this handler is enough for discordgo to process the event and update the state.
+}
+
 func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
 		return
@@ -145,6 +150,11 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 	}
 
 	if h.DB != nil {
+		if m.GuildID == "" {
+			if err := h.DB.AddDMChannel(m.ChannelID); err != nil {
+				h.Logger.Error("Error adding DM channel to cache", err)
+			}
+		}
 		key := h.GenerateMessageCacheKey(m.GuildID, m.ChannelID)
 		if err := h.DB.AddMessage(key, m.Message); err != nil {
 			h.Logger.Error(fmt.Sprintf("Error saving message %s", m.ID), err)

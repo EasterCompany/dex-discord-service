@@ -14,10 +14,10 @@ func NewSession(token string) (*discordgo.Session, error) {
 	}
 
 	// Specify the necessary intents.
-	// Guilds is for basic server information.
+	// Servers is for basic server information.
 	// GuildMessages is for receiving messages in channels.
 	// GuildVoiceStates is for tracking who is joining/leaving/speaking in voice channels.
-	s.Identify.Intents = discordgo.IntentGuilds | discordgo.IntentGuildMessages | discordgo.IntentGuildVoiceStates | discordgo.IntentGuildMembers | discordgo.IntentGuildPresences
+	s.Identify.Intents = discordgo.IntentGuilds | discordgo.IntentGuildMessages | discordgo.IntentGuildVoiceStates | discordgo.IntentGuildMembers | discordgo.IntentGuildPresences | discordgo.IntentDirectMessages | discordgo.IntentMessageContent
 
 	return s, nil
 }

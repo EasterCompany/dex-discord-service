@@ -30,6 +30,10 @@ type Cache interface {
 	SaveGuildState(guildID string, state *guild.GuildState) error
 	LoadGuildState(guildID string) (*guild.GuildState, error)
 	GetAllGuildIDs() ([]string, error)
+	GetAllMessageCacheKeys() ([]string, error)
+	GetMessageCount(key string) (int64, error)
+	AddDMChannel(channelID string) error
+	GetAllDMChannels() ([]string, error)
 	SaveAudio(key string, data []byte, ttl time.Duration) error
 	GetAudio(key string) ([]byte, error)
 	DeleteAudio(key string) error
@@ -37,9 +41,34 @@ type Cache interface {
 	CleanAllMessages() (CleanResult, error)
 }
 
+type DebugCache interface {
+	GetAllKeys() ([]string, error)
+	GetType(key string) (string, error)
+	Get(key string) (string, error)
+	LRange(key string, start, stop int64) ([]string, error)
+}
+
 type CleanResult struct {
 	Count      int
 	BytesFreed int64
+}
+
+func NewDebug(cfg *config.ConnectionConfig) (DebugCache, error) {
+	if cfg == nil || cfg.Addr == "" {
+		return nil, nil
+	}
+	rdb := redis.NewClient(&redis.Options{
+		Addr:     cfg.Addr,
+		Password: cfg.Password,
+		Username: cfg.Username,
+		DB:       cfg.DB,
+	})
+	ctx := context.Background()
+	_, err := rdb.Ping(ctx).Result()
+	if err != nil {
+		return nil, fmt.Errorf("could not connect to cache at %s: %w", cfg.Addr, err)
+	}
+	return &DB{rdb: rdb, ctx: ctx}, nil
 }
 
 func New(cfg *config.ConnectionConfig) (Cache, error) {
@@ -166,6 +195,31 @@ func (db *DB) GetAllGuildIDs() ([]string, error) {
 	return keys, nil
 }
 
+func (db *DB) GetAllMessageCacheKeys() ([]string, error) {
+	var keys []string
+	pattern := db.prefixedKey("messages:*")
+	iter := db.rdb.Scan(db.ctx, 0, pattern, 0).Iterator()
+	for iter.Next(db.ctx) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
+func (db *DB) GetMessageCount(key string) (int64, error) {
+	return db.rdb.LLen(db.ctx, key).Result()
+}
+
+func (db *DB) AddDMChannel(channelID string) error {
+	return db.rdb.SAdd(db.ctx, db.prefixedKey("dm_channels"), channelID).Err()
+}
+
+func (db *DB) GetAllDMChannels() ([]string, error) {
+	return db.rdb.SMembers(db.ctx, db.prefixedKey("dm_channels")).Result()
+}
+
 func (db *DB) SaveAudio(key string, data []byte, ttl time.Duration) error {
 	return db.rdb.Set(db.ctx, db.prefixedKey(key), data, ttl).Err()
 }
@@ -224,4 +278,28 @@ func (db *DB) CleanAllAudio() (CleanResult, error) {
 
 func (db *DB) CleanAllMessages() (CleanResult, error) {
 	return db.cleanKeysByPattern("messages:*")
+}
+
+func (db *DB) GetAllKeys() ([]string, error) {
+	var keys []string
+	iter := db.rdb.Scan(db.ctx, 0, db.prefixedKey("*"), 0).Iterator()
+	for iter.Next(db.ctx) {
+		keys = append(keys, iter.Val())
+	}
+	if err := iter.Err(); err != nil {
+		return nil, err
+	}
+	return keys, nil
+}
+
+func (db *DB) GetType(key string) (string, error) {
+	return db.rdb.Type(db.ctx, key).Result()
+}
+
+func (db *DB) Get(key string) (string, error) {
+	return db.rdb.Get(db.ctx, key).Result()
+}
+
+func (db *DB) LRange(key string, start, stop int64) ([]string, error) {
+	return db.rdb.LRange(db.ctx, key, start, stop).Result()
 }
