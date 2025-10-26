@@ -21,6 +21,11 @@ func GetSysInfo() (*SysInfo, error) {
 		return nil, err
 	}
 
+	coreCount, err := cpu.Counts(false)
+	if err != nil {
+		return nil, err
+	}
+
 	threadCount, err := cpu.Counts(true)
 	if err != nil {
 		return nil, err
@@ -33,7 +38,7 @@ func GetSysInfo() (*SysInfo, error) {
 
 	return &SysInfo{
 		CPUModel:       cpuInfo[0].ModelName,
-		CPUCoreCount:   cpuInfo[0].Cores,
+		CPUCoreCount:   int32(coreCount),
 		CPUThreadCount: threadCount,
 		CPUSpeed:       cpuInfo[0].Mhz,
 		TotalMemory:    virtualMem.Total,
