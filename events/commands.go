@@ -17,7 +17,12 @@ var commandHandlers = map[string]CommandHandlerFunc{
 }
 
 func (h *Handler) handleUnknownCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
-	// Later we will add a response here
+	msg, err := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("`%s` is not a valid command.", m.Content))
+	if err != nil {
+		return
+	}
+	time.Sleep(10 * time.Second)
+	_ = s.ChannelMessageDelete(msg.ChannelID, msg.ID)
 }
 
 func (h *Handler) routeCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
