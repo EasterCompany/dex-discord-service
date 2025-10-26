@@ -1,3 +1,4 @@
+// Package log provides a custom logger that sends messages to a designated Discord channel.
 package log
 
 import (

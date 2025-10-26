@@ -1,3 +1,4 @@
+// Package health provides functions for checking the status of various application components.
 package health
 
 import (

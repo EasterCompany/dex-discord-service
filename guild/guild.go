@@ -1,4 +1,4 @@
-// eastercompany/dex-discord-interface/guild/guild.go
+// Package guild defines data structures for guild-specific state and user audio streams.
 package guild
 
 import (

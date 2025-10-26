@@ -1,4 +1,4 @@
-// eastercompany/dex-discord-interface/stt/stt.go
+// Package stt provides a client for the Google Cloud Speech-to-Text API.
 package stt
 
 import (

@@ -1,3 +1,4 @@
+// Package cache provides an interface for interacting with the Redis cache.
 package cache
 
 import (

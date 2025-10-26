@@ -1,4 +1,4 @@
-// eastercompany/dex-discord-interface/interfaces/database.go
+// Package interfaces defines interfaces for various application components.
 package interfaces
 
 import (

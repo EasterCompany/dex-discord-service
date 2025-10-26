@@ -1,3 +1,4 @@
+// Package llm provides a client for interacting with Large Language Models.
 package llm
 
 import (

@@ -1,4 +1,4 @@
-// eastercompany/dex-discord-interface/session/session.go
+// Package session manages the Discord session.
 package session
 
 import (

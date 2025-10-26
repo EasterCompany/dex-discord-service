@@ -1,4 +1,4 @@
-// eastercompany/dex-discord-interface/store/store.go
+// Package store provides functions for managing file-based storage.
 package store
 
 import (

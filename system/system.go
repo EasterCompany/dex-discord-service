@@ -1,3 +1,4 @@
+// Package system provides functions for retrieving system metrics.
 package system
 
 import (
