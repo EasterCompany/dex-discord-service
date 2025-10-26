@@ -211,7 +211,7 @@ func postFinalStatus(s *discordgo.Session, localCache, cloudCache cache.Cache, c
 	if len(gpuInfo) > 0 {
 		var gpuStrs []string
 		for _, gpu := range gpuInfo {
-			gpuStrs = append(gpuStrs, fmt.Sprintf("<:nvidia:1431880272110161931> %s: `%.2f%%` (`%.1fGB / %.1fGB`)", gpu.Name, gpu.Utilization, gpu.MemoryUsed/1024, gpu.MemoryTotal/1024))
+			gpuStrs = append(gpuStrs, fmt.Sprintf("<:nvidia:1431880272110161931> %s: `%.2f%%` (`%s / %s`)", gpu.Name, gpu.Utilization, humanReadableBytes(int64(gpu.MemoryUsed*1024*1024)), humanReadableBytes(int64(gpu.MemoryTotal*1024*1024))))
 		}
 		gpuInfoStr = strings.Join(gpuStrs, "\n")
 	} else {
