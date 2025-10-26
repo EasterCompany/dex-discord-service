@@ -202,6 +202,11 @@ func postFinalStatus(s *discordgo.Session, localCache, cloudCache cache.Cache, c
 		logger.Error("Failed to get GPU status", err)
 	}
 
+	diskInfo, err := system.GetDiskInfo()
+	if err != nil {
+		logger.Error("Failed to get disk info", err)
+	}
+
 	var gpuInfoStr string
 	if len(gpuInfo) > 0 {
 		var gpuStrs []string
@@ -220,6 +225,19 @@ func postFinalStatus(s *discordgo.Session, localCache, cloudCache cache.Cache, c
 		fmt.Sprintf("<:cpu:1431892037984194660> %s: `%.2f%%` (`%d cores, %d threads, %.2f GHz`)", sysInfo.CPUModel, cpuUsage, sysInfo.CPUCoreCount, sysInfo.CPUThreadCount, sysInfo.CPUSpeed/1000),
 		fmt.Sprintf("<:ram:1429533495633510461> Memory: `%.2f%%` (`%s / %s`)", memUsage, humanReadableBytes(int64(memUsage/100*float64(sysInfo.TotalMemory))), humanReadableBytes(int64(sysInfo.TotalMemory))),
 		gpuInfoStr,
+		"",
+		"**Storage Devices**",
+		func() string {
+			if len(diskInfo) > 0 {
+				var diskStrs []string
+				for _, disk := range diskInfo {
+					diskStrs = append(diskStrs, fmt.Sprintf("💿 %s: `%.2f%%` (`%s / %s`)", disk.Path, disk.UsedPercent, humanReadableBytes(int64(disk.Used)), humanReadableBytes(int64(disk.Total))))
+				}
+				return strings.Join(diskStrs, "\n")
+			} else {
+				return "❌ No Storage Devices Detected."
+			}
+		}(),
 		"",
 		"**Service Status**",
 		fmt.Sprintf("<:discord:1429533475303719013> Discord: %s", discordStatus),

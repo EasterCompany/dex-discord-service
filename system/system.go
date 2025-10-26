@@ -4,8 +4,42 @@ import (
 	"fmt"
 
 	"github.com/shirou/gopsutil/v3/cpu"
+	"github.com/shirou/gopsutil/v3/disk"
 	"github.com/shirou/gopsutil/v3/mem"
 )
+
+type DiskInfo struct {
+	Path        string
+	Total       uint64
+	Used        uint64
+	Free        uint64
+	UsedPercent float64
+}
+
+func GetDiskInfo() ([]DiskInfo, error) {
+	partitions, err := disk.Partitions(false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get disk partitions: %w", err)
+	}
+
+	var disks []DiskInfo
+	for _, p := range partitions {
+		usage, err := disk.Usage(p.Mountpoint)
+		if err != nil {
+			// Log the error but continue with other partitions
+			fmt.Printf("Error getting disk usage for %s: %v\n", p.Mountpoint, err)
+			continue
+		}
+		disks = append(disks, DiskInfo{
+			Path:        p.Mountpoint,
+			Total:       usage.Total,
+			Used:        usage.Used,
+			Free:        usage.Free,
+			UsedPercent: usage.UsedPercent,
+		})
+	}
+	return disks, nil
+}
 
 type SysInfo struct {
 	CPUModel       string
