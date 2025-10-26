@@ -1,4 +1,3 @@
-// eastercompany/dex-discord-interface/system/system.go
 package system
 
 import (
@@ -7,6 +6,32 @@ import (
 	"github.com/shirou/gopsutil/v3/cpu"
 	"github.com/shirou/gopsutil/v3/mem"
 )
+
+type SysInfo struct {
+	CPUModel     string
+	CPUCoreCount int32
+	CPUSpeed     float64
+	TotalMemory  uint64
+}
+
+func GetSysInfo() (*SysInfo, error) {
+	cpuInfo, err := cpu.Info()
+	if err != nil {
+		return nil, err
+	}
+
+	virtualMem, err := mem.VirtualMemory()
+	if err != nil {
+		return nil, err
+	}
+
+	return &SysInfo{
+		CPUModel:     cpuInfo[0].ModelName,
+		CPUCoreCount: cpuInfo[0].Cores,
+		CPUSpeed:     cpuInfo[0].Mhz,
+		TotalMemory:  virtualMem.Total,
+	}, nil
+}
 
 // GetCPUUsage returns the current CPU usage as a percentage
 func GetCPUUsage() (float64, error) {

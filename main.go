@@ -179,6 +179,10 @@ func performCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *co
 }
 
 func postFinalStatus(s *discordgo.Session, localCache, cloudCache cache.Cache, cfg *config.AllConfig, bootMessageID, cleanupReport string, audioCleanResult, messageCleanResult cache.CleanResult, sttClient *stt.Client, stateManager *events.StateManager, logger logger.Logger, systemPrompt string) {
+	sysInfo, err := system.GetSysInfo()
+	if err != nil {
+		logger.Error("Failed to get system info", err)
+	}
 	cpuUsage, _ := system.GetCPUUsage()
 	memUsage, _ := system.GetMemoryUsage()
 	discordStatus := health.GetDiscordStatus(s)
@@ -206,8 +210,8 @@ func postFinalStatus(s *discordgo.Session, localCache, cloudCache cache.Cache, c
 	activeGuildsStrings := health.GetFormattedActiveGuilds(s)
 	finalStatus := strings.Join([]string{
 		"**System Status**",
-		fmt.Sprintf("🖥️ CPU: `%.2f%%`", cpuUsage),
-		fmt.Sprintf("<:ram:1429533495633510461> Memory: `%.2f%%`", memUsage),
+		fmt.Sprintf("🖥️ CPU: `%s (%d cores, %.2f GHz)` - `%.2f%%`", sysInfo.CPUModel, sysInfo.CPUCoreCount, sysInfo.CPUSpeed/1000, cpuUsage),
+		fmt.Sprintf("<:ram:1429533495633510461> Memory: `%.2f%%` (`%s / %s`)", memUsage, humanReadableBytes(int64(memUsage/100*float64(sysInfo.TotalMemory))), humanReadableBytes(int64(sysInfo.TotalMemory))),
 		gpuInfoStr,
 		"",
 		"**Service Status**",
