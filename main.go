@@ -210,7 +210,7 @@ func postFinalStatus(s *discordgo.Session, localCache, cloudCache cache.Cache, c
 	activeGuildsStrings := health.GetFormattedActiveGuilds(s)
 	finalStatus := strings.Join([]string{
 		"**System Status**",
-		fmt.Sprintf("🖥️ CPU: `(%s): %d cores, %d threads, %.2f GHz, %.2f%%`", sysInfo.CPUModel, sysInfo.CPUCoreCount, sysInfo.CPUThreadCount, sysInfo.CPUSpeed/1000, cpuUsage),
+		fmt.Sprintf("🖥️ CPU (%s): `%d cores, %d threads, %.2f GHz, %.2f%%`", sysInfo.CPUModel, sysInfo.CPUCoreCount, sysInfo.CPUThreadCount, sysInfo.CPUSpeed/1000, cpuUsage),
 		fmt.Sprintf("<:ram:1429533495633510461> Memory: `%.2f%%` (`%s / %s`)", memUsage, humanReadableBytes(int64(memUsage/100*float64(sysInfo.TotalMemory))), humanReadableBytes(int64(sysInfo.TotalMemory))),
 		gpuInfoStr,
 		"",
