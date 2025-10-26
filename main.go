@@ -186,24 +186,20 @@ func postFinalStatus(s *discordgo.Session, localCache, cloudCache cache.Cache, c
 	cloudCacheStatus := health.GetCacheStatus(cloudCache, cfg.Cache.Cloud)
 	sttStatus := health.GetSTTStatus(sttClient)
 	ollamaStatus := health.GetOllamaStatus()
-	gpuStatus, gpuInfo := health.GetGPUStatus()
+	gpuInfo, err := health.GetGPUStatus()
+	if err != nil {
+		logger.Error("Failed to get GPU status", err)
+	}
 
 	var gpuInfoStr string
-	if gpuInfo != nil {
-		gpuInfoStr = fmt.Sprintf(`<:gpu:1429531622478184478> GPU Util: `+"`%.2f%%`"+`
-<:gpu:1429531622478184478> GPU Mem: `+"`%.2f%% (%.1fGB / %.1fGB)`",
-			gpuInfo.Utilization,
-			(gpuInfo.MemoryUsed/gpuInfo.MemoryTotal)*100,
-			gpuInfo.MemoryUsed/1024,
-			gpuInfo.MemoryTotal/1024,
-		)
-	} else {
-		if gpuStatus != "" {
-			gpuInfoStr = fmt.Sprintf("❌ GPU: %s", gpuStatus)
-		} else {
-			gpuInfoStr = `<:gpu:1429531622478184478> GPU Util: ` + "`-/-`" + `
-<:gpu:1429531622478184478> GPU Mem: ` + "`-/-`"
+	if len(gpuInfo) > 0 {
+		var gpuStrs []string
+		for _, gpu := range gpuInfo {
+			gpuStrs = append(gpuStrs, fmt.Sprintf("%s: `%.2f%%` (`%.1fGB / %.1fGB`)", gpu.Name, gpu.Utilization, gpu.MemoryUsed/1024, gpu.MemoryTotal/1024))
 		}
+		gpuInfoStr = strings.Join(gpuStrs, "\n")
+	} else {
+		gpuInfoStr = "❌ No Nvidia GPU Detected."
 	}
 
 	addedMessagesCount, addedMessagesSize := stateManager.GetAddedMessagesStats()

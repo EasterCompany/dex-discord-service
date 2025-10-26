@@ -59,16 +59,16 @@ func GetSTTStatus(sttClient interfaces.SpeechToText) string {
 }
 
 // GetGPUStatus checks and returns the status of the GPU as a formatted string.
-func GetGPUStatus() (string, *system.GPUInfo) {
+func GetGPUStatus() ([]system.GPUInfo, error) {
 	if !system.IsNvidiaGPUInstalled() {
-		return "", nil
+		return nil, nil
 	}
 
 	info, err := system.GetGPUInfo()
 	if err != nil {
-		return fmt.Sprintf("**ERROR**: `%v`", err), nil
+		return nil, fmt.Errorf("**ERROR**: `%v`", err)
 	}
-	return "**OK**", info
+	return info, nil
 }
 
 // GetActiveGuilds returns a map of guild names to guild IDs.
