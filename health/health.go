@@ -2,6 +2,7 @@ package health
 
 import (
 	"fmt"
+	"net/http"
 
 	"github.com/EasterCompany/dex-discord-interface/cache"
 	"github.com/EasterCompany/dex-discord-interface/config"
@@ -9,6 +10,19 @@ import (
 	"github.com/EasterCompany/dex-discord-interface/system"
 	"github.com/bwmarrin/discordgo"
 )
+
+// GetOllamaStatus checks and returns the status of the Ollama server as a formatted string.
+func GetOllamaStatus() string {
+	resp, err := http.Get("http://localhost:11434")
+	if err != nil {
+		return fmt.Sprintf("**ERROR**: `%v`", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Sprintf("**ERROR**: `Status: %s`", resp.Status)
+	}
+	return "**OK**"
+}
 
 // GetDiscordStatus checks and returns the status of the Discord connection as a formatted string.
 func GetDiscordStatus(s *discordgo.Session) string {

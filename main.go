@@ -185,6 +185,7 @@ func postFinalStatus(s *discordgo.Session, localCache, cloudCache cache.Cache, c
 	localCacheStatus := health.GetCacheStatus(localCache, cfg.Cache.Local)
 	cloudCacheStatus := health.GetCacheStatus(cloudCache, cfg.Cache.Cloud)
 	sttStatus := health.GetSTTStatus(sttClient)
+	ollamaStatus := health.GetOllamaStatus()
 	gpuStatus, gpuInfo := health.GetGPUStatus()
 
 	var gpuInfoStr string
@@ -216,6 +217,7 @@ func postFinalStatus(s *discordgo.Session, localCache, cloudCache cache.Cache, c
 		"**Service Status**",
 		fmt.Sprintf("<:discord:1429533475303719013> Discord: %s", discordStatus),
 		fmt.Sprintf("🎧 STT Client: %s", sttStatus),
+		fmt.Sprintf("🤖 Ollama: %s", ollamaStatus),
 		fmt.Sprintf("<:redis:1429533496954585108> Local Cache: %s", localCacheStatus),
 		fmt.Sprintf("<:quickredis:1429533493934948362> Cloud Cache: %s", cloudCacheStatus),
 		"",
