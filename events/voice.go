@@ -24,6 +24,17 @@ var rtpPacketPool = sync.Pool{
 	},
 }
 
+func (h *Handler) getDisplayName(s *discordgo.Session, guildID string, user *discordgo.User) string {
+	member, err := s.State.Member(guildID, user.ID)
+	if err == nil && member.Nick != "" {
+		return member.Nick
+	}
+	if user.GlobalName != "" {
+		return user.GlobalName
+	}
+	return user.Username
+}
+
 func (h *Handler) SpeakingUpdate(vc *discordgo.VoiceConnection, p *discordgo.VoiceSpeakingUpdate) {
 	user, err := h.Session.User(p.UserID)
 	if err != nil {
@@ -78,15 +89,7 @@ func (h *Handler) finalizeStream(s *discordgo.Session, guildID string, ssrc uint
 		channel = &discordgo.Channel{Name: "Unknown Channel"}
 	}
 
-	member, err := s.State.Member(guildID, stream.User.ID)
-	var displayName string
-	if err == nil && member.Nick != "" {
-		displayName = member.Nick
-	} else if stream.User.GlobalName != "" {
-		displayName = stream.User.GlobalName
-	} else {
-		displayName = stream.User.Username
-	}
+	displayName := h.getDisplayName(s, guildID, stream.User)
 
 	msgContent := fmt.Sprintf("`[%s - %s]` **%s** (%s) in %s on %s: 🔵 [awaiting transcription] `(%s)` | `Key: %s`",
 		stream.StartTime.Format("15:04:05"),
@@ -216,15 +219,7 @@ func (h *Handler) handleAudioPacket(s *discordgo.Session, guildID string, p *dis
 
 		g, _ := s.State.Guild(guildID)
 		channel, _ := s.State.Channel(state.ConnectionChannelID)
-		member, _ := s.State.Member(guildID, user.ID)
-		var displayName string
-		if member != nil && member.Nick != "" {
-			displayName = member.Nick
-		} else if user.GlobalName != "" {
-			displayName = user.GlobalName
-		} else {
-			displayName = user.Username
-		}
+		displayName := h.getDisplayName(s, guildID, user)
 
 		msgContent := fmt.Sprintf("`[%s]` **%s** (%s) in %s on %s: 🔴 [speaking...] | `Key: %s`",
 			startTime.Format("15:04:05"),
