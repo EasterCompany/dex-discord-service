@@ -20,6 +20,9 @@ func GetSysInfo() (*SysInfo, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(cpuInfo) == 0 {
+		return nil, fmt.Errorf("no CPU info found")
+	}
 
 	coreCount, err := cpu.Counts(false)
 	if err != nil {

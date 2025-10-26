@@ -182,9 +182,16 @@ func postFinalStatus(s *discordgo.Session, localCache, cloudCache cache.Cache, c
 	sysInfo, err := system.GetSysInfo()
 	if err != nil {
 		logger.Error("Failed to get system info", err)
+		sysInfo = &system.SysInfo{}
 	}
-	cpuUsage, _ := system.GetCPUUsage()
-	memUsage, _ := system.GetMemoryUsage()
+	cpuUsage, err := system.GetCPUUsage()
+	if err != nil {
+		logger.Error("Failed to get CPU usage", err)
+	}
+	memUsage, err := system.GetMemoryUsage()
+	if err != nil {
+		logger.Error("Failed to get memory usage", err)
+	}
 	discordStatus := health.GetDiscordStatus(s)
 	localCacheStatus := health.GetCacheStatus(localCache, cfg.Cache.Local)
 	cloudCacheStatus := health.GetCacheStatus(cloudCache, cfg.Cache.Cloud)
