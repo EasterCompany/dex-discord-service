@@ -14,7 +14,6 @@ type UserStream struct {
 	OggWriter      *oggwriter.OggWriter
 	Buffer         *bytes.Buffer
 	LastPacket     time.Time
-	Message        *discordgo.Message
 	User           *discordgo.User
 	StartTime      time.Time
 	Filename       string

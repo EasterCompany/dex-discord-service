@@ -24,16 +24,10 @@ func PerformCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *co
 		audioCleanResult, _ = localCache.CleanAllAudio()
 	}
 
-	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		results <- cleanup.ClearChannel(s, discordCfg.LogChannelID, bootMessageID, discordCfg)
 	}()
-	go func() {
-		defer wg.Done()
-		results <- cleanup.ClearChannel(s, discordCfg.TranscriptionChannelID, "", discordCfg)
-	}()
-	go func() { defer wg.Done(); results <- cleanup.CleanStaleMessages(s, discordCfg.TranscriptionChannelID) }()
 	wg.Wait()
 	close(results)
 
@@ -45,7 +39,6 @@ func PerformCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *co
 	reportFields := []string{
 		"**House Keeping**",
 		fmt.Sprintf("🧹 Logs: `%d` removed.", cleanupStats["ClearLogs"]),
-		fmt.Sprintf("🧹 Transcriptions: `%d` removed.", cleanupStats["ClearTranscriptions"]+cleanupStats["CleanStaleMessages"]),
 	}
 	return strings.Join(reportFields, "\n"), audioCleanResult, messageCleanResult
 }

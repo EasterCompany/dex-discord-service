@@ -22,9 +22,9 @@ type MainConfig struct {
 }
 
 type DiscordConfig struct {
-	Token                  string `json:"token"`
-	HomeServerID           string `json:"home_server_id"`
-	LogChannelID           string `json:"log_channel_id"`
+	Token        string `json:"token"`
+	HomeServerID string `json:"home_server_id"`
+	LogChannelID string `json:"log_channel_id"`
 }
 
 type CacheConfig struct {

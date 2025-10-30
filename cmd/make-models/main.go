@@ -1,13 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"bytes"
 )
 
 const (
@@ -114,15 +115,15 @@ func runOllamaCommand(args ...string) error {
 	err := cmd.Run()
 	if err != nil {
 		// Only include stdout/stderr in error if they contain something
-		var errorOutput strings.Builder
-		errorOutput.WriteString(fmt.Sprintf("ollama command failed: %w", err))
+		var errorMsg strings.Builder
+		errorMsg.WriteString(fmt.Sprintf("ollama command failed: %v", err))
 		if stdout.Len() > 0 {
-			errorOutput.WriteString(fmt.Sprintf("\nStdout: %s", stdout.String()))
+			errorMsg.WriteString(fmt.Sprintf("\nStdout: %s", stdout.String()))
 		}
 		if stderr.Len() > 0 {
-			errorOutput.WriteString(fmt.Sprintf("\nStderr: %s", stderr.String()))
+			errorMsg.WriteString(fmt.Sprintf("\nStderr: %s", stderr.String()))
 		}
-		return fmt.Errorf(errorOutput.String())
+		return errors.New(errorMsg.String())
 	}
 	// Print ollama's output to give user feedback
 	if stdout.Len() > 0 {

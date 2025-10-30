@@ -52,9 +52,9 @@ func main() {
 			FileName: "discord.json",
 			Path:     filepath.Join(configDir, "discord.json"),
 			Model: struct {
-				Token                  string `json:"token"`
-				HomeServerID           string `json:"home_server_id"`
-				LogChannelID           string `json:"log_channel_id"`
+				Token        string `json:"token"`
+				HomeServerID string `json:"home_server_id"`
+				LogChannelID string `json:"log_channel_id"`
 			}{},
 		},
 		{

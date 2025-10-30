@@ -96,32 +96,6 @@ func (h *Handler) finalizeStream(s *discordgo.Session, guildID string, ssrc uint
 
 	displayName := h.getDisplayName(s, guildID, stream.User)
 
-	// Add speaking events to history
-	state, ok := h.StateManager.GetGuildState(guildID)
-	if ok {
-		state.Mutex.Lock()
-		// Add "stopped speaking" event
-		stoppedEntry := guild.TranscriptionEntry{
-			Duration:      0,
-			Username:      stream.User.Username,
-			Transcription: "stopped speaking",
-			Timestamp:     endTime,
-			IsEvent:       true,
-		}
-		state.TranscriptionHistory = append(state.TranscriptionHistory, stoppedEntry)
-
-		// Add "awaiting transcription" event
-		awaitingEntry := guild.TranscriptionEntry{
-			Duration:      duration,
-			Username:      stream.User.Username,
-			Transcription: "🔵 [awaiting transcription]",
-			Timestamp:     endTime,
-			IsEvent:       true,
-		}
-		state.TranscriptionHistory = append(state.TranscriptionHistory, awaitingEntry)
-		state.Mutex.Unlock()
-	}
-
 	go h.transcribeAndUpdate(s, stream, g, channel, displayName, duration, endTime)
 }
 
@@ -174,24 +148,18 @@ func (h *Handler) transcribeAndUpdate(s *discordgo.Session, stream *guild.UserSt
 			Timestamp:     endTime,
 			IsEvent:       false,
 		}
-		state.TranscriptionHistory = append(state.TranscriptionHistory, entry)
+		// Append to the correct channel's history
+		history := state.TranscriptionHistory[stream.VoiceChannelID]
+		history = append(history, entry)
+
+		// Cap history at 100 entries
+		if len(history) > 100 {
+			history = history[len(history)-100:]
+		}
+		state.TranscriptionHistory[stream.VoiceChannelID] = history
 		state.Mutex.Unlock()
 	}
 
-	if h.DB != nil {
-		transcriptionMessage := &discordgo.Message{
-			ID:        stream.Message.ID,
-			ChannelID: stream.VoiceChannelID,
-			GuildID:   g.ID,
-			Content:   transcription,
-			Timestamp: endTime,
-			Author:    stream.User,
-		}
-		key := h.GenerateMessageCacheKey(g.ID, stream.VoiceChannelID)
-		if err := h.DB.AddMessage(key, transcriptionMessage); err != nil {
-			h.Logger.Error(fmt.Sprintf("Error saving transcription message %s", stream.Message.ID), err)
-		}
-	}
 }
 
 func (h *Handler) formatConnectionMessage(s *discordgo.Session, vc *discordgo.VoiceConnection, state *guild.GuildState) string {
@@ -329,16 +297,17 @@ func (h *Handler) formatConnectionMessage(s *discordgo.Session, vc *discordgo.Vo
 	msg.WriteString("```")
 
 	// Display recent transcriptions and events (last 10 entries)
-	if len(state.TranscriptionHistory) > 0 {
+	history := state.TranscriptionHistory[vc.ChannelID]
+	if len(history) > 0 {
 		msg.WriteString("\n**Recent Transcriptions:**\n```\n")
 
 		// Get last 10 entries
 		startIdx := 0
-		if len(state.TranscriptionHistory) > 10 {
-			startIdx = len(state.TranscriptionHistory) - 10
+		if len(history) > 10 {
+			startIdx = len(history) - 10
 		}
 
-		for _, entry := range state.TranscriptionHistory[startIdx:] {
+		for _, entry := range history[startIdx:] {
 			if entry.IsEvent && entry.Duration == 0 {
 				// Events without duration (like "stopped speaking")
 				msg.WriteString(fmt.Sprintf("%s: %s\n", entry.Username, entry.Transcription))
@@ -519,29 +488,11 @@ func (h *Handler) handleAudioPacket(s *discordgo.Session, guildID string, p *dis
 			return
 		}
 
-		g, _ := s.State.Guild(guildID)
-		channel, _ := s.State.Channel(state.ConnectionChannelID)
-		displayName := h.getDisplayName(s, guildID, user)
-
-		msgContent := fmt.Sprintf("`[%s]` **%s** (%s) in %s on %s: 🔴 [speaking...] | `Key: %s`",
-			startTime.Format("15:04:05"),
-			displayName,
-			user.Username,
-			channel.Name,
-			g.Name,
-			filename)
-
-		msg, err := s.ChannelMessageSend(h.DiscordCfg.TranscriptionChannelID, msgContent)
-		if err != nil {
-			_ = oggWriter.Close()
-			return
-		}
 		stream = &guild.UserStream{
 			VoiceChannelID: state.ConnectionChannelID,
 			OggWriter:      oggWriter,
 			Buffer:         buffer,
 			LastPacket:     time.Now(),
-			Message:        msg,
 			User:           user,
 			StartTime:      startTime,
 			Filename:       filename,

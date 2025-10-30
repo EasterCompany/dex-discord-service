@@ -21,8 +21,8 @@ type GuildState struct {
 	Mutex                      sync.Mutex             `json:"-"`
 	ActiveStreams              map[uint32]*UserStream `json:"-"`
 	SSRCUserMap                map[uint32]string
-	UnmappedSSRCs              map[uint32]bool      `json:"-"` // Track SSRCs we've received audio from but don't have user mappings for
-	TranscriptionHistory       []TranscriptionEntry `json:"-"` // Full transcription log for the session
+	UnmappedSSRCs              map[uint32]bool                 `json:"-"` // Track SSRCs we've received audio from but don't have user mappings for
+	TranscriptionHistory       map[string][]TranscriptionEntry `json:"-"` // Full transcription log for the session, keyed by channel ID
 	ConnectionMessageID        string
 	ConnectionChannelID        string
 	ConnectionMessageChannelID string
@@ -38,7 +38,7 @@ func NewGuildState() *GuildState {
 		ActiveStreams:              make(map[uint32]*UserStream),
 		SSRCUserMap:                make(map[uint32]string),
 		UnmappedSSRCs:              make(map[uint32]bool),
-		TranscriptionHistory:       make([]TranscriptionEntry, 0),
+		TranscriptionHistory:       make(map[string][]TranscriptionEntry),
 		ConnectionMessageID:        "",
 		ConnectionChannelID:        "",
 		ConnectionMessageChannelID: "",
