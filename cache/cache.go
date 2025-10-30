@@ -106,18 +106,26 @@ func (db *DB) SaveMessage(key string, m *discordgo.Message) error {
 }
 
 func (db *DB) BulkInsertMessages(key string, messages []*discordgo.Message) error {
-	pipe := db.rdb.Pipeline()
 	prefixedKey := db.prefixedKey(key)
-	pipe.Del(db.ctx, prefixedKey)
-	for _, m := range messages {
+
+	jsonMsgs := make([]interface{}, len(messages))
+	for i, m := range messages {
 		jsonMsg, err := json.Marshal(m)
 		if err != nil {
 			return fmt.Errorf("could not marshal message: %w", err)
 		}
-		pipe.RPush(db.ctx, prefixedKey, jsonMsg)
+		jsonMsgs[i] = jsonMsg
 	}
-	pipe.LTrim(db.ctx, prefixedKey, -50, -1)
-	_, err := pipe.Exec(db.ctx)
+
+	_, err := db.rdb.TxPipelined(db.ctx, func(pipe redis.Pipeliner) error {
+		pipe.Del(db.ctx, prefixedKey)
+		if len(jsonMsgs) > 0 {
+			pipe.RPush(db.ctx, prefixedKey, jsonMsgs...)
+		}
+		pipe.LTrim(db.ctx, prefixedKey, -50, -1)
+		return nil
+	})
+
 	return err
 }
 
