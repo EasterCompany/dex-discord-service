@@ -24,6 +24,7 @@ func PerformCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *co
 		audioCleanResult, _ = localCache.CleanAllAudio()
 	}
 
+	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		results <- cleanup.ClearChannel(s, discordCfg.LogChannelID, bootMessageID, discordCfg)
