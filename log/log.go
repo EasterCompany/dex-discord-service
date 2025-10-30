@@ -15,6 +15,7 @@ type Logger interface {
 	Post(msg string)
 	PostInitialMessage(msg string) (*discordgo.Message, error)
 	UpdateInitialMessage(messageID, newContent string)
+	Info(msg string)
 	Error(context string, err error)
 	Fatal(context string, err error)
 }
@@ -51,6 +52,14 @@ func (l *logger) PostInitialMessage(msg string) (*discordgo.Message, error) {
 func (l *logger) UpdateInitialMessage(messageID, newContent string) {
 	if l.session != nil && l.logChannelID != "" {
 		_, _ = l.session.ChannelMessageEdit(l.logChannelID, messageID, newContent)
+	}
+}
+
+// Info logs an info message to the console and to the discord channel
+func (l *logger) Info(msg string) {
+	log.Printf("[INFO] %s\n", msg)
+	if l.session != nil && l.logChannelID != "" {
+		_, _ = l.session.ChannelMessageSend(l.logChannelID, msg)
 	}
 }
 

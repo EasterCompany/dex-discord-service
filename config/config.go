@@ -25,7 +25,6 @@ type DiscordConfig struct {
 	Token                  string `json:"token"`
 	HomeServerID           string `json:"home_server_id"`
 	LogChannelID           string `json:"log_channel_id"`
-	TranscriptionChannelID string `json:"transcription_channel_id"`
 }
 
 type CacheConfig struct {
@@ -43,6 +42,7 @@ type ConnectionConfig struct {
 type BotConfig struct {
 	VoiceTimeoutSeconds int    `json:"voice_timeout_seconds"`
 	AudioTTLMinutes     int    `json:"audio_ttl_minutes"`
+	LLMServerURL        string `json:"llm_server_url"`
 	EngagementModel     string `json:"engagement_model"`
 	ConversationalModel string `json:"conversational_model"`
 }

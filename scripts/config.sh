@@ -17,8 +17,7 @@ echo '{
 echo '{
   "token": "",
   "home_server_id": "",
-  "log_channel_id": "",
-  "transcription_channel_id": ""
+  "log_channel_id": ""
 }' >"$DEXTER_DIR/discord.json"
 
 # Cache specific config
@@ -40,7 +39,10 @@ echo '{
 # Bot specific config
 echo '{
   "voice_timeout_seconds": 2,
-  "audio_ttl_minutes": 10
+  "audio_ttl_minutes": 10,
+  "llm_server_url": "http://localhost:11434/api/chat",
+  "engagement_model": "llama3",
+  "conversational_model": "llama3"
 }' >"$DEXTER_DIR/bot.json"
 
 echo "Boilerplate config files created in $DEXTER_DIR"

@@ -2,24 +2,17 @@ package llm
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"io"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
 )
 
-type LLMResponse struct {
-	XMLName xml.Name `xml:"response"`
-	Think   string   `xml:"think"`
-	Say     string   `xml:"say"`
-	React   []string `xml:"react"`
-}
-
+// OllamaStreamResponse is the structure of a single chunk in the Ollama stream.
 type OllamaStreamResponse struct {
 	Model     string    `json:"model"`
 	CreatedAt time.Time `json:"created_at"`
@@ -27,224 +20,60 @@ type OllamaStreamResponse struct {
 	Done      bool      `json:"done"`
 }
 
-type streamState int
-
-const (
-	stateSearching streamState = iota
-	stateThinking
-	stateStreamingSay
-	stateFinished
-)
-
-func (c *Client) processStream(s *discordgo.Session, triggeringMessage *discordgo.Message, body io.ReadCloser) error {
+// processStream handles the streaming of the LLM response to a Discord message.
+func (c *Client) processStream(ctx context.Context, s *discordgo.Session, triggeringMessage *discordgo.Message, body io.ReadCloser) (*discordgo.Message, error) {
 	reader := bufio.NewReader(body)
-	responseMessage, response, err := c.handleStreamState(s, triggeringMessage, reader)
-	if err != nil {
-		if responseMessage != nil {
-			_, _ = s.ChannelMessageEdit(triggeringMessage.ChannelID, responseMessage.ID, "An error occurred while generating the response.")
-		}
-		return fmt.Errorf("error handling stream state: %w", err)
-	}
-
-	c.applyFinalAction(s, triggeringMessage, responseMessage, response)
-
-	return nil
-}
-
-func (c *Client) parseLLMStream(reader *bufio.Reader) (*LLMResponse, error) {
-	var fullContent strings.Builder
-	for {
-		line, err := reader.ReadBytes('\n')
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, fmt.Errorf("error reading stream: %w", err)
-		}
-
-		var streamResp OllamaStreamResponse
-		if err := json.Unmarshal(line, &streamResp); err != nil {
-			continue
-		}
-
-		fullContent.WriteString(streamResp.Message.Content)
-
-		if streamResp.Done {
-			break
-		}
-	}
-
-	rawResponse := fullContent.String()
-	// Check for open <say> tag and close it if necessary
-	if strings.Contains(rawResponse, "<say>") && !strings.Contains(rawResponse, "</say>") {
-		rawResponse += "</say>"
-	}
-
-	// Ensure the response is wrapped in <response> tags
-	if !strings.HasPrefix(rawResponse, "<response>") {
-		rawResponse = "<response>" + rawResponse
-	}
-	if !strings.HasSuffix(rawResponse, "</response>") {
-		rawResponse += "</response>"
-	}
-
-	fmt.Printf("Raw LLM Response: %s\n", rawResponse)
-
-	cleanResponse := strings.TrimSpace(rawResponse)
-	if strings.HasPrefix(cleanResponse, "```xml") {
-		cleanResponse = strings.TrimPrefix(cleanResponse, "```xml")
-		cleanResponse = strings.TrimSuffix(cleanResponse, "```")
-		cleanResponse = strings.TrimSpace(cleanResponse)
-	}
-
-	fmt.Printf("Cleaned LLM Response: %s\n", cleanResponse)
-
-	var response LLMResponse
-	thinkRegex := regexp.MustCompile(`(?s)<think>(.*?)<\/think>`)
-	sayRegex := regexp.MustCompile(`(?s)<say>(.*?)<\/say>`)
-	reactRegex := regexp.MustCompile(`(?s)<react>(.*?)<\/react>`)
-
-	thinkMatches := thinkRegex.FindStringSubmatch(cleanResponse)
-	sayMatches := sayRegex.FindStringSubmatch(cleanResponse)
-	reactMatches := reactRegex.FindAllStringSubmatch(cleanResponse, -1)
-
-	if thinkMatches != nil {
-		response.Think = thinkMatches[1]
-	}
-
-	if sayMatches != nil {
-		response.Say = sayMatches[1]
-	}
-
-	for _, match := range reactMatches {
-		response.React = append(response.React, match[1])
-	}
-
-	if response.Say == "" && len(response.React) == 0 {
-		return nil, fmt.Errorf("final XML parsing failed. Raw response was: %s", rawResponse)
-	}
-
-	return &response, nil
-}
-
-func (c *Client) handleStreamState(s *discordgo.Session, triggeringMessage *discordgo.Message, reader *bufio.Reader) (*discordgo.Message, *LLMResponse, error) {
 	var fullContent strings.Builder
 	var responseMessage *discordgo.Message
-	var lastEdit time.Time
-	currentState := stateSearching
-	const editInterval = 1 * time.Second
+	var err error
+	var line []byte
 
-	for currentState != stateFinished {
-		line, err := reader.ReadBytes('\n')
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			if responseMessage != nil {
-				_, _ = s.ChannelMessageEdit(triggeringMessage.ChannelID, responseMessage.ID, "An error occurred while generating the response.")
+	// Read the first chunk to create the initial message
+	firstChunk := true
+streamLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			return nil, context.Canceled
+		default:
+			line, err = reader.ReadBytes('\n')
+			if err == io.EOF {
+				break streamLoop
 			}
-			return nil, nil, fmt.Errorf("error reading stream: %w", err)
-		}
+			if err != nil {
+				return nil, fmt.Errorf("error reading stream: %w", err)
+			}
 
-		var streamResp OllamaStreamResponse
-		if err := json.Unmarshal(line, &streamResp); err != nil {
-			continue
-		}
+			var streamResp OllamaStreamResponse
+			if err := json.Unmarshal(line, &streamResp); err != nil {
+				continue
+			}
 
-		fullContent.WriteString(streamResp.Message.Content)
-		currentBuffer := fullContent.String()
+			fullContent.WriteString(streamResp.Message.Content)
 
-		switch currentState {
-		case stateSearching:
-			if strings.Contains(currentBuffer, "<think>") {
-				responseMessage, err = c.sendThinkingMessage(s, triggeringMessage.ChannelID)
+			if firstChunk && fullContent.Len() > 0 {
+				responseMessage, err = s.ChannelMessageSend(triggeringMessage.ChannelID, fullContent.String())
 				if err != nil {
-					return nil, nil, err
+					return nil, fmt.Errorf("failed to send initial message: %w", err)
 				}
-				currentState = stateThinking
-			}
-		case stateThinking:
-			if sayIndex := strings.Index(currentBuffer, "<say>"); sayIndex != -1 {
-				// Check if <think> is open and unclosed
-				if thinkIndex := strings.Index(currentBuffer, "<think>"); thinkIndex != -1 {
-					if !strings.Contains(currentBuffer[:sayIndex], "</think>") {
-						currentBuffer = currentBuffer[:sayIndex] + "</think>" + currentBuffer[sayIndex:]
-						sayIndex += len("</think>")
-						fullContent.Reset()
-						fullContent.WriteString(currentBuffer)
-					}
-				}
-
-				initialContent := currentBuffer[sayIndex+len("<say>"):]
-				if initialContent != "" {
-					c.updateSayMessage(s, responseMessage, initialContent)
-				}
-				lastEdit = time.Now()
-				currentState = stateStreamingSay
-			} else if reactIndex := strings.Index(currentBuffer, "<react>"); reactIndex != -1 {
-				// Check if <think> is open and unclosed
-				if thinkIndex := strings.Index(currentBuffer, "<think>"); thinkIndex != -1 {
-					if !strings.Contains(currentBuffer[:reactIndex], "</think>") {
-						currentBuffer = currentBuffer[:reactIndex] + "</think>" + currentBuffer[reactIndex:]
-						fullContent.Reset()
-						fullContent.WriteString(currentBuffer)
-					}
+				firstChunk = false
+			} else if !firstChunk {
+				if responseMessage.Content != fullContent.String() {
+					_, _ = s.ChannelMessageEdit(responseMessage.ChannelID, responseMessage.ID, fullContent.String())
+					responseMessage.Content = fullContent.String()
 				}
 			}
-		case stateStreamingSay:
-			if time.Since(lastEdit) > editInterval {
-				sayStartIndex := strings.Index(currentBuffer, "<say>")
-				if sayStartIndex == -1 {
-					continue
-				}
-				sayContent := currentBuffer[sayStartIndex+len("<say>"):]
 
-				if sayEndIndex := strings.Index(sayContent, "</say>"); sayEndIndex != -1 {
-					sayContent = sayContent[:sayEndIndex]
-				}
-
-				c.updateSayMessage(s, responseMessage, sayContent)
-				lastEdit = time.Now()
+			if streamResp.Done {
+				break streamLoop
 			}
 		}
-
-		if streamResp.Done {
-			currentState = stateFinished
-		}
 	}
 
-	response, err := c.parseLLMStream(bufio.NewReader(strings.NewReader(fullContent.String())))
-	if err != nil {
-		return responseMessage, nil, err
+	// Final update to ensure the message is complete
+	if responseMessage != nil && responseMessage.Content != fullContent.String() {
+		_, _ = s.ChannelMessageEdit(responseMessage.ChannelID, responseMessage.ID, fullContent.String())
 	}
 
-	return responseMessage, response, nil
-}
-
-func (c *Client) sendThinkingMessage(s *discordgo.Session, channelID string) (*discordgo.Message, error) {
-	return s.ChannelMessageSend(channelID, "<a:loading:1429533488687747182> Thinking...")
-}
-
-func (c *Client) updateSayMessage(s *discordgo.Session, message *discordgo.Message, content string) {
-	if message.Content != content {
-		_, _ = s.ChannelMessageEdit(message.ChannelID, message.ID, content)
-		message.Content = content
-	}
-}
-
-func (c *Client) applyFinalAction(s *discordgo.Session, triggeringMessage *discordgo.Message, responseMessage *discordgo.Message, response *LLMResponse) {
-	if response.Say != "" && responseMessage != nil {
-		if responseMessage.Content != response.Say {
-			_, _ = s.ChannelMessageEdit(triggeringMessage.ChannelID, responseMessage.ID, response.Say)
-		}
-	} else if response.Say == "" && responseMessage != nil {
-		_ = s.ChannelMessageDelete(triggeringMessage.ChannelID, responseMessage.ID)
-	}
-
-	for _, emoji := range response.React {
-		err := s.MessageReactionAdd(triggeringMessage.ChannelID, triggeringMessage.ID, emoji)
-		if err != nil {
-			fmt.Printf("Failed to add reaction '%s': %v\n", emoji, err)
-		}
-	}
+	return responseMessage, nil
 }

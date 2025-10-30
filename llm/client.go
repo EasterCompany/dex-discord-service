@@ -1,4 +1,3 @@
-// Package llm provides a client for interacting with Large Language Models.
 package llm
 
 import (
@@ -35,7 +34,7 @@ func NewClient(persona *interfaces.Persona, botConfig *config.BotConfig, cache c
 
 	return &Client{
 		httpClient:          &http.Client{},
-		LLMServerURL:        "http://localhost:11434/api/chat",
+		LLMServerURL:        botConfig.LLMServerURL,
 		EngagementModel:     botConfig.EngagementModel,
 		ConversationalModel: botConfig.ConversationalModel,
 		SystemPrompt:        systemPrompt,
@@ -86,17 +85,20 @@ type EngagementCheckContext struct {
 	History []*discordgo.Message
 }
 
-func (c *Client) ShouldEngage(s *discordgo.Session, m *discordgo.MessageCreate, history []*discordgo.Message) (bool, error) {
+func (c *Client) GetEngagementDecision(s *discordgo.Session, m *discordgo.MessageCreate, history []*discordgo.Message) (string, string, error) {
 	channel, err := s.State.Channel(m.ChannelID)
 	if err != nil {
-		return false, fmt.Errorf("could not get channel: %w", err)
+		channel, err = s.Channel(m.ChannelID)
+		if err != nil {
+			return "IGNORE", "", fmt.Errorf("could not get channel: %w", err)
+		}
 	}
 
 	var guild *discordgo.Guild
 	if m.GuildID != "" {
 		guild, err = s.State.Guild(m.GuildID)
 		if err != nil {
-			return false, fmt.Errorf("could not get guild: %w", err)
+			return "IGNORE", "", fmt.Errorf("could not get guild: %w", err)
 		}
 	} else {
 		guild = &discordgo.Guild{Name: "Direct Message"}
@@ -112,10 +114,10 @@ func (c *Client) ShouldEngage(s *discordgo.Session, m *discordgo.MessageCreate, 
 	var promptBuf bytes.Buffer
 	tmpl, err := template.New("engagementCheck").Parse(engagementCheckTemplate)
 	if err != nil {
-		return false, fmt.Errorf("failed to parse engagement check template: %w", err)
+		return "IGNORE", "", fmt.Errorf("failed to parse engagement check template: %w", err)
 	}
 	if err := tmpl.Execute(&promptBuf, &engagementCtx); err != nil {
-		return false, fmt.Errorf("failed to execute engagement check template: %w", err)
+		return "IGNORE", "", fmt.Errorf("failed to execute engagement check template: %w", err)
 	}
 
 	request := LLMServerRequest{
@@ -128,30 +130,59 @@ func (c *Client) ShouldEngage(s *discordgo.Session, m *discordgo.MessageCreate, 
 
 	payload, err := json.Marshal(request)
 	if err != nil {
-		return false, fmt.Errorf("failed to marshal engagement request: %w", err)
+		return "IGNORE", "", fmt.Errorf("failed to marshal engagement request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(context.Background(), "POST", c.LLMServerURL, bytes.NewBuffer(payload))
 	if err != nil {
-		return false, fmt.Errorf("failed to create engagement request: %w", err)
+		return "IGNORE", "", fmt.Errorf("failed to create engagement request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return false, fmt.Errorf("failed to send engagement request to LLM server: %w", err)
+		return "IGNORE", "", fmt.Errorf("failed to send engagement request to LLM server: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("LLM server returned non-200 status for engagement check: %s", resp.Status)
+		return "IGNORE", "", fmt.Errorf("LLM server returned non-200 status for engagement check: %s", resp.Status)
 	}
 
 	var llmResp LLMServerResponse
 	if err := json.NewDecoder(resp.Body).Decode(&llmResp); err != nil {
-		return false, fmt.Errorf("failed to decode engagement response: %w", err)
+		return "IGNORE", "", fmt.Errorf("failed to decode engagement response: %w", err)
 	}
 
-	return strings.TrimSpace(llmResp.Message.Content) == "ENGAGE", nil
+	decision := strings.TrimSpace(llmResp.Message.Content)
+	parts := strings.Fields(decision)
+
+	if len(parts) == 0 {
+		return "IGNORE", "", nil
+	}
+
+	switch parts[0] {
+	case "REACT":
+		if len(parts) > 1 {
+			if parts[1] == "REPLY" || parts[1] == "IGNORE" || parts[1] == "STOP" || parts[1] == "CONTINUE" {
+				return "IGNORE", "", nil
+			}
+			return "REACT", parts[1], nil
+		}
+		return "IGNORE", "", nil
+	case "REPLY":
+		if len(parts) > 1 {
+			return "REACT", parts[1], nil
+		}
+		return "REPLY", "", nil
+	case "STOP":
+		return "STOP", "", nil
+	case "CONTINUE":
+		return "CONTINUE", "", nil
+	case "IGNORE":
+		return "IGNORE", "", nil
+	}
+
+	return "REACT", parts[0], nil
 }
 
 type ContextBlock struct {
@@ -166,7 +197,10 @@ type ContextBlock struct {
 func (c *Client) GenerateContextBlock(s *discordgo.Session, m *discordgo.MessageCreate) (string, error) {
 	channel, err := s.State.Channel(m.ChannelID)
 	if err != nil {
-		return "", fmt.Errorf("could not get channel: %w", err)
+		channel, err = s.Channel(m.ChannelID)
+		if err != nil {
+			return "", fmt.Errorf("could not get channel: %w", err)
+		}
 	}
 
 	var guild *discordgo.Guild
@@ -248,28 +282,28 @@ func (c *Client) CreateOllamaPayload(messages []*discordgo.Message, contextBlock
 	return json.Marshal(request)
 }
 
-func (c *Client) StreamChatCompletion(s *discordgo.Session, triggeringMessage *discordgo.Message, messages []*discordgo.Message, contextBlock string) error {
+func (c *Client) StreamChatCompletion(ctx context.Context, s *discordgo.Session, triggeringMessage *discordgo.Message, messages []*discordgo.Message, contextBlock string) (*discordgo.Message, error) {
 	payload, err := c.CreateOllamaPayload(messages, contextBlock)
 	if err != nil {
-		return fmt.Errorf("failed to create LLM server payload: %w", err)
+		return nil, fmt.Errorf("failed to create LLM server payload: %w", err)
 	}
 
-	req, err := http.NewRequestWithContext(context.Background(), "POST", c.LLMServerURL, bytes.NewBuffer(payload))
+	req, err := http.NewRequestWithContext(ctx, "POST", c.LLMServerURL, bytes.NewBuffer(payload))
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send request to LLM server: %w", err)
+		return nil, fmt.Errorf("failed to send request to LLM server: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("LLM server returned non-200 status: %s, body: %s", resp.Status, string(body))
+		return nil, fmt.Errorf("LLM server returned non-200 status: %s, body: %s", resp.Status, string(body))
 	}
 
-	return c.processStream(s, triggeringMessage, resp.Body)
+	return c.processStream(ctx, s, triggeringMessage, resp.Body)
 }

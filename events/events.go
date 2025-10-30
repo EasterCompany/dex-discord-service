@@ -22,11 +22,12 @@ type Handler struct {
 	Session      *discordgo.Session
 	Logger       logger.Logger
 	StateManager *StateManager
+	UserManager  *UserManager
 	SttClient    interfaces.SpeechToText
 	LLMClient    *llm.Client
 }
 
-func NewHandler(db cache.Cache, discordCfg *config.DiscordConfig, botCfg *config.BotConfig, s *discordgo.Session, logger logger.Logger, stateManager *StateManager, sttClient interfaces.SpeechToText, llmClient *llm.Client) *Handler {
+func NewHandler(db cache.Cache, discordCfg *config.DiscordConfig, botCfg *config.BotConfig, s *discordgo.Session, logger logger.Logger, stateManager *StateManager, userManager *UserManager, sttClient interfaces.SpeechToText, llmClient *llm.Client) *Handler {
 	return &Handler{
 		DB:           db,
 		DiscordCfg:   discordCfg,
@@ -34,6 +35,7 @@ func NewHandler(db cache.Cache, discordCfg *config.DiscordConfig, botCfg *config
 		Session:      s,
 		Logger:       logger,
 		StateManager: stateManager,
+		UserManager:  userManager,
 		SttClient:    sttClient,
 		LLMClient:    llmClient,
 	}
@@ -144,10 +146,32 @@ func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate
 		return
 	}
 
-	if m.GuildID != "" && strings.HasPrefix(m.Content, "!") {
+	// Check if the message is a command
+	if strings.HasPrefix(m.Content, "!") {
 		h.routeCommand(s, m)
 		return
 	}
+
+	userState := h.UserManager.GetOrCreateUserState(m.Author.ID)
+	userState.Mutex.Lock()
+
+	switch userState.State {
+	case StatePending:
+		// If a response is pending, cancel it and let the new message trigger a new response.
+		if userState.Timer != nil {
+			userState.Timer.Stop()
+		}
+		userState.State = StateIdle
+	case StateStreaming:
+		// If a response is streaming, cancel it and delete the partial message.
+		if userState.CancelFunc != nil {
+			userState.CancelFunc()
+		}
+		_ = s.ChannelMessageDelete(userState.ChannelID, userState.MessageID)
+		userState.State = StateIdle
+	}
+
+	userState.Mutex.Unlock()
 
 	if h.DB != nil {
 		if m.GuildID == "" {

@@ -12,8 +12,9 @@ import (
 type CommandHandlerFunc func(h *Handler, s *discordgo.Session, m *discordgo.MessageCreate)
 
 var commandHandlers = map[string]CommandHandlerFunc{
-	"join":  (*Handler).joinVoice,
-	"leave": (*Handler).leaveVoice,
+	"join":      (*Handler).joinVoice,
+	"leave":     (*Handler).leaveVoice,
+	"clear_dex": (*Handler).clearDex,
 }
 
 func (h *Handler) handleUnknownCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
@@ -25,9 +26,32 @@ func (h *Handler) handleUnknownCommand(s *discordgo.Session, m *discordgo.Messag
 	_ = s.ChannelMessageDelete(msg.ChannelID, msg.ID)
 }
 
+func (h *Handler) clearDex(s *discordgo.Session, m *discordgo.MessageCreate) {
+	if m.GuildID == "" {
+		// In DMs, the bot cannot delete messages. Provide feedback to the user.
+		_, _ = s.ChannelMessageSend(m.ChannelID, "I cannot delete messages in Direct Messages due to Discord API limitations.")
+		return
+	}
+	botID := s.State.User.ID
+
+	messages, err := s.ChannelMessages(m.ChannelID, 100, "", "", "")
+	if err != nil {
+		h.Logger.Error("Failed to fetch messages", err)
+		return
+	}
+
+	for _, msg := range messages {
+		if msg.Author.ID == botID {
+			_ = s.ChannelMessageDelete(msg.ChannelID, msg.ID)
+		}
+	}
+}
+
 func (h *Handler) routeCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
-	// Delete the command message
-	_ = s.ChannelMessageDelete(m.ChannelID, m.ID)
+	// Delete the command message, but only if it's not a DM.
+	if m.GuildID != "" {
+		_ = s.ChannelMessageDelete(m.ChannelID, m.ID)
+	}
 
 	parts := strings.Fields(m.Content)
 	if len(parts) == 0 {
@@ -109,11 +133,20 @@ func (h *Handler) leaveVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 func (h *Handler) disconnectFromVoice(s *discordgo.Session, guildID string) {
 	if vc, ok := s.VoiceConnections[guildID]; ok {
-		_ = vc.Disconnect()
 		state, ok := h.StateManager.GetGuildState(guildID)
 		if !ok {
+			_ = vc.Disconnect()
 			return
 		}
+
+		// Cancel the context to signal the handleVoice goroutine to exit
+		if state.CancelFunc != nil {
+			state.CancelFunc()
+		}
+
+		// Disconnect from voice
+		_ = vc.Disconnect()
+
 		state.Mutex.Lock()
 		defer state.Mutex.Unlock()
 
@@ -124,8 +157,19 @@ func (h *Handler) disconnectFromVoice(s *discordgo.Session, guildID string) {
 
 			var editContent string
 			if channel != nil && g != nil {
-				editContent = fmt.Sprintf("Disconnected from %s (%s) at %s (%s) after %s.",
-					channel.Name, channel.ID, g.Name, g.ID, duration)
+				// Count unique users who spoke
+				uniqueUsers := make(map[string]bool)
+				for _, userID := range state.SSRCUserMap {
+					uniqueUsers[userID] = true
+				}
+
+				editContent = fmt.Sprintf("**Disconnected from %s (%s) at %s (%s)**\n**Duration:** %s\n**Users tracked:** %d\n**Total SSRCs:** %d",
+					channel.Name, channel.ID, g.Name, g.ID, duration, len(uniqueUsers), len(state.SSRCUserMap))
+
+				// Add warning about unmapped SSRCs if any
+				if len(state.UnmappedSSRCs) > 0 {
+					editContent += fmt.Sprintf("\n⚠️ **Unmapped SSRCs:** %d (users who joined before bot)", len(state.UnmappedSSRCs))
+				}
 			} else {
 				editContent = fmt.Sprintf("Disconnected after %s.", duration)
 			}

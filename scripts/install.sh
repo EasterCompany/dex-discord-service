@@ -54,6 +54,8 @@ echo "Reloading systemd, enabling and starting the service..."
 systemctl daemon-reload
 systemctl enable dex-discord-interface.service
 systemctl start dex-discord-interface.service
+systemctl stop ollama.service
+systemctl start ollama.service
 
 # --- Health Check ---
 if systemctl is-active --quiet dex-discord-interface.service; then

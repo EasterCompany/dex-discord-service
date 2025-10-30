@@ -28,6 +28,7 @@ type App struct {
 	STTClient    interfaces.SpeechToText
 	LLMClient    *llm.Client
 	StateManager *events.StateManager
+	UserManager  *events.UserManager
 }
 
 func NewApp() (*App, error) {
@@ -60,6 +61,7 @@ func NewApp() (*App, error) {
 	}
 
 	stateManager := events.NewStateManager()
+	userManager := events.NewUserManager()
 
 	return &App{
 		Config:       cfg,
@@ -70,11 +72,12 @@ func NewApp() (*App, error) {
 		STTClient:    sttClient,
 		LLMClient:    llmClient,
 		StateManager: stateManager,
+		UserManager:  userManager,
 	}, nil
 }
 
 func (a *App) Run() {
-	eventHandler := events.NewHandler(a.LocalCache, a.Config.Discord, a.Config.Bot, a.Session, a.Logger, a.StateManager, a.STTClient, a.LLMClient)
+	eventHandler := events.NewHandler(a.LocalCache, a.Config.Discord, a.Config.Bot, a.Session, a.Logger, a.StateManager, a.UserManager, a.STTClient, a.LLMClient)
 
 	a.Session.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		count, size := eventHandler.Ready(s, r)
