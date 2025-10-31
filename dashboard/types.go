@@ -23,10 +23,10 @@ type Dashboard interface {
 
 // MessageCache holds the cached state of a dashboard
 type MessageCache struct {
-	MessageID       string
-	Content         string
-	LastUpdate      time.Time
-	LastAPIUpdate   time.Time
+	MessageID        string
+	Content          string
+	LastUpdate       time.Time
+	LastAPIUpdate    time.Time
 	ThrottleDuration time.Duration
 }
 

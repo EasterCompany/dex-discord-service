@@ -34,7 +34,11 @@ func main() {
 	if err := session.Open(); err != nil {
 		log.Fatalf("Failed to open Discord connection: %v", err)
 	}
-	defer session.Close()
+	defer func() {
+		if err := session.Close(); err != nil {
+			log.Printf("Error closing Discord session: %v", err)
+		}
+	}()
 
 	fmt.Println("Connected to Discord!")
 
