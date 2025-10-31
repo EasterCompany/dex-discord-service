@@ -8,23 +8,25 @@ import (
 
 	"github.com/EasterCompany/dex-discord-interface/cache"
 	"github.com/EasterCompany/dex-discord-interface/config"
+	"github.com/EasterCompany/dex-discord-interface/preinit"
 	"github.com/bwmarrin/discordgo"
 )
 
 func main() {
+	logger := preinit.NewLogger()
 	cfg, _, err := config.LoadAllConfigs()
 	if err != nil {
-		log.Fatalf("Fatal error loading config: %v", err)
+		logger.Fatal("Fatal error loading config", err)
 	}
 
 	debugCache, err := cache.NewDebug(cfg.Cache.Local)
 	if err != nil {
-		log.Fatalf("Failed to initialize local cache: %v", err)
+		logger.Fatal("Failed to initialize local cache", err)
 	}
 
 	keys, err := debugCache.GetAllKeys()
 	if err != nil {
-		log.Fatalf("Failed to get keys: %v", err)
+		logger.Fatal("Failed to get keys", err)
 	}
 
 	for _, key := range keys {

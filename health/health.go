@@ -19,7 +19,7 @@ func GetFormattedCachedDMs(s *discordgo.Session, c cache.Cache, logger logger.Lo
 	if c == nil {
 		return []string{"**Cached DMs**", "Cache not configured"}
 	}
-	keys, err := c.GetAllMessageCacheKeys()
+	keys, err := c.GetAllDMChannels()
 	if err != nil {
 		return []string{"**Cached DMs**", "Error getting keys"}
 	}
@@ -30,12 +30,7 @@ func GetFormattedCachedDMs(s *discordgo.Session, c cache.Cache, logger logger.Lo
 
 	dmStrings := []string{"**Cached DMs**"}
 	for _, key := range keys {
-		if !strings.Contains(key, ":dm:") {
-			continue
-		}
-		parts := strings.Split(key, ":")
-		channelID := parts[len(parts)-1]
-		ch, err := s.Channel(channelID)
+		ch, err := s.Channel(key)
 		if err != nil {
 			continue
 		}
@@ -45,7 +40,7 @@ func GetFormattedCachedDMs(s *discordgo.Session, c cache.Cache, logger logger.Lo
 			name = ch.Recipients[0].Username
 		}
 
-		count, err := c.GetMessageCount(key)
+		count, err := c.GetMessageCount(fmt.Sprintf("dex-discord-interface:messages:dm:%s", key))
 		if err != nil {
 			continue
 		}

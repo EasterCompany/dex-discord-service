@@ -28,13 +28,20 @@ func (c *Client) processStream(ctx context.Context, s *discordgo.Session, trigge
 	var err error
 	var line []byte
 
-	// Read the first chunk to create the initial message
+	updateTicker := time.NewTicker(1 * time.Second)
+	defer updateTicker.Stop()
+
 	firstChunk := true
 streamLoop:
 	for {
 		select {
 		case <-ctx.Done():
 			return nil, context.Canceled
+		case <-updateTicker.C:
+			if !firstChunk && responseMessage != nil && responseMessage.Content != fullContent.String() {
+				_, _ = s.ChannelMessageEdit(responseMessage.ChannelID, responseMessage.ID, fullContent.String())
+				responseMessage.Content = fullContent.String()
+			}
 		default:
 			line, err = reader.ReadBytes('\n')
 			if err == io.EOF {
@@ -57,11 +64,6 @@ streamLoop:
 					return nil, fmt.Errorf("failed to send initial message: %w", err)
 				}
 				firstChunk = false
-			} else if !firstChunk {
-				if responseMessage.Content != fullContent.String() {
-					_, _ = s.ChannelMessageEdit(responseMessage.ChannelID, responseMessage.ID, fullContent.String())
-					responseMessage.Content = fullContent.String()
-				}
 			}
 
 			if streamResp.Done {

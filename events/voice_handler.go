@@ -1,9 +1,8 @@
-
+// Package events handles Discord gateway events and dispatches them to appropriate handlers.
 package events
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"log"
 	"math"
@@ -22,26 +21,6 @@ import (
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 )
 
-type VoiceHandler struct {
-	DB           cache.Cache
-	BotCfg       *config.BotConfig
-	Session      *discordgo.Session
-	Logger       logger.Logger
-	StateManager *StateManager
-	SttClient    interfaces.SpeechToText
-}
-
-func NewVoiceHandler(db cache.Cache, botCfg *config.BotConfig, s *discordgo.Session, logger logger.Logger, stateManager *StateManager, sttClient interfaces.SpeechToText) *VoiceHandler {
-	return &VoiceHandler{
-		DB:           db,
-		BotCfg:       botCfg,
-		Session:      s,
-		Logger:       logger,
-		StateManager: stateManager,
-		SttClient:    sttClient,
-	}
-}
-
 var rtpPacketPool = sync.Pool{
 	New: func() any {
 		return &rtp.Packet{
@@ -53,6 +32,148 @@ var rtpPacketPool = sync.Pool{
 	},
 }
 
+type VoiceHandler struct {
+	Session      *discordgo.Session
+	Logger       logger.Logger
+	StateManager *StateManager
+	DB           cache.Cache
+	BotCfg       *config.BotConfig
+	DiscordCfg   *config.DiscordConfig
+	SttClient    interfaces.SpeechToText
+}
+
+func NewVoiceHandler(s *discordgo.Session, logger logger.Logger, stateManager *StateManager, db cache.Cache, botCfg *config.BotConfig, discordCfg *config.DiscordConfig, sttClient interfaces.SpeechToText) *VoiceHandler {
+	return &VoiceHandler{
+		Session:      s,
+		Logger:       logger,
+		StateManager: stateManager,
+		DB:           db,
+		BotCfg:       botCfg,
+		DiscordCfg:   discordCfg,
+		SttClient:    sttClient,
+	}
+}
+
+func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
+	h.disconnectFromVoice(s, m.GuildID)
+	time.Sleep(1 * time.Second)
+
+	g, err := s.State.Guild(m.GuildID)
+	if err != nil {
+		return
+	}
+	for _, vs := range g.VoiceStates {
+		if vs.UserID == m.Author.ID {
+			state := h.StateManager.GetOrStoreGuildState(m.GuildID)
+			if h.DB != nil {
+				if err := h.DB.SaveGuildState(m.GuildID, state); err != nil {
+					h.Logger.Error(fmt.Sprintf("Error saving guild state for guild %s", m.GuildID), err)
+				}
+			}
+			channel, err := s.Channel(vs.ChannelID)
+			if err != nil {
+				return
+			}
+			msg, _ := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Connecting to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
+			if msg != nil {
+				state.ConnectionMessageID = msg.ID
+				state.ConnectionMessageChannelID = msg.ChannelID
+				state.ConnectionStartTime = time.Now()
+			}
+
+			const maxRetries = 3
+			var vc *discordgo.VoiceConnection
+
+			for i := 0; i < maxRetries; i++ {
+				vc, err = s.ChannelVoiceJoin(m.GuildID, vs.ChannelID, false, false)
+				if err == nil {
+					break
+				}
+				retrySeconds := int(math.Pow(2, float64(i)))
+				if msg != nil {
+					_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect, retrying in %d seconds...", retrySeconds))
+				}
+				time.Sleep(time.Duration(retrySeconds) * time.Second)
+			}
+
+			if err != nil {
+				if msg != nil {
+					_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
+				}
+				h.disconnectFromVoice(s, m.GuildID)
+				return
+			}
+
+			vc.AddHandler(func(vc *discordgo.VoiceConnection, p *discordgo.VoiceSpeakingUpdate) {
+				h.SpeakingUpdate(vc, p)
+			})
+			state.ConnectionChannelID = vc.ChannelID
+			go h.handleVoice(s, vc, state)
+			return
+		}
+	}
+	_, _ = s.ChannelMessageSend(m.ChannelID, "You need to be in a voice channel for me to join!")
+}
+
+func (h *VoiceHandler) LeaveVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
+	h.disconnectFromVoice(s, m.GuildID)
+}
+
+func (h *VoiceHandler) disconnectFromVoice(s *discordgo.Session, guildID string) {
+	if vc, ok := s.VoiceConnections[guildID]; ok {
+		state, ok := h.StateManager.GetGuildState(guildID)
+		if !ok {
+			_ = vc.Disconnect()
+			return
+		}
+
+		// Cancel the context to signal the handleVoice goroutine to exit
+		if state.CancelFunc != nil {
+			state.CancelFunc()
+		}
+
+		// Disconnect from voice
+		_ = vc.Disconnect()
+
+		state.MetaMutex.Lock()
+		defer state.MetaMutex.Unlock()
+
+		if state.ConnectionMessageID != "" {
+			duration := time.Since(state.ConnectionStartTime).Round(time.Second)
+			channel, _ := s.Channel(state.ConnectionChannelID)
+			g, _ := s.State.Guild(guildID)
+
+			var editContent string
+			if channel != nil && g != nil {
+				// Count unique users who spoke
+				uniqueUsers := make(map[string]bool)
+				for _, userID := range state.SSRCUserMap {
+					uniqueUsers[userID] = true
+				}
+
+				editContent = fmt.Sprintf("**Disconnected from %s (%s) at %s (%s)**\n**Duration:** %s\n**Users tracked:** %d\n**Total SSRCs:** %d",
+					channel.Name, channel.ID, g.Name, g.ID, duration, len(uniqueUsers), len(state.SSRCUserMap))
+
+				// Add warning about unmapped SSRCs if any
+				if len(state.UnmappedSSRCs) > 0 {
+					editContent += fmt.Sprintf("\n⚠️ **Unmapped SSRCs:** %d (users who joined before bot)", len(state.UnmappedSSRCs))
+				}
+			} else {
+				editContent = fmt.Sprintf("Disconnected after %s.", duration)
+			}
+			_, _ = s.ChannelMessageEdit(state.ConnectionMessageChannelID, state.ConnectionMessageID, editContent)
+		}
+
+		state.StreamsMutex.Lock()
+		defer state.StreamsMutex.Unlock()
+		for ssrc, stream := range state.ActiveStreams {
+			h.finalizeStream(s, guildID, ssrc, stream)
+			delete(state.ActiveStreams, ssrc)
+		}
+		h.StateManager.DeleteGuildState(guildID)
+	}
+}
+
 func (h *VoiceHandler) getDisplayName(s *discordgo.Session, guildID string, user *discordgo.User) string {
 	member, err := s.State.Member(guildID, user.ID)
 	if err == nil && member.Nick != "" {
@@ -62,12 +183,6 @@ func (h *VoiceHandler) getDisplayName(s *discordgo.Session, guildID string, user
 		return user.GlobalName
 	}
 	return user.Username
-}
-
-func (h *VoiceHandler) registerVoiceHandlers(vc *discordgo.VoiceConnection) {
-	vc.AddHandler(func(vc *discordgo.VoiceConnection, p *discordgo.VoiceSpeakingUpdate) {
-		h.SpeakingUpdate(vc, p)
-	})
 }
 
 func (h *VoiceHandler) SpeakingUpdate(vc *discordgo.VoiceConnection, p *discordgo.VoiceSpeakingUpdate) {
@@ -87,18 +202,15 @@ func (h *VoiceHandler) SpeakingUpdate(vc *discordgo.VoiceConnection, p *discordg
 		return
 	}
 
-	state.Mutex.Lock()
-	// Update the SSRC to user mapping
+	// IMPORTANT: Map SSRC regardless of speaking status
+	// Discord sends VoiceSpeakingUpdate events when:
+	// 1. User starts speaking (Speaking=true)
+	// 2. User stops speaking (Speaking=false)
+	// 3. User joins the channel (may be Speaking=false initially)
+	// We want to capture SSRCs in ALL cases to handle pre-existing users
+	state.MetaMutex.Lock()
 	state.SSRCUserMap[uint32(p.SSRC)] = p.UserID
-
-	// Update the speaking status of the user
-	if p.Speaking {
-		state.SpeakingUsers[p.UserID] = true
-		state.Metrics.SpeakingEvents++
-	} else {
-		delete(state.SpeakingUsers, p.UserID)
-	}
-	state.Mutex.Unlock()
+	state.MetaMutex.Unlock()
 
 	// Save state to DB
 	if h.DB != nil {
@@ -111,7 +223,7 @@ func (h *VoiceHandler) SpeakingUpdate(vc *discordgo.VoiceConnection, p *discordg
 func (h *VoiceHandler) finalizeStream(s *discordgo.Session, guildID string, ssrc uint32, stream *guild.UserStream) {
 	_ = stream.OggWriter.Close()
 	if h.DB != nil {
-		key := fmt.Sprintf("audio:%s", stream.Filename)
+		key := h.DB.GenerateAudioCacheKey(stream.Filename)
 		ttl := time.Duration(h.BotCfg.AudioTTLMinutes) * time.Minute
 		if err := h.DB.SaveAudio(key, stream.Buffer.Bytes(), ttl); err != nil {
 			h.Logger.Error(fmt.Sprintf("Failed to save audio to cache for key %s", key), err)
@@ -140,17 +252,17 @@ func (h *VoiceHandler) transcribeAndUpdate(s *discordgo.Session, stream *guild.U
 		h.Logger.Error("STT client is nil, cannot transcribe", nil)
 		// Delete audio immediately on error
 		if h.DB != nil {
-			_ = h.DB.DeleteAudio(fmt.Sprintf("audio:%s", stream.Filename))
+			_ = h.DB.DeleteAudio(h.DB.GenerateAudioCacheKey(stream.Filename))
 		}
 		return
 	}
 
-	audio, err := h.DB.GetAudio(fmt.Sprintf("audio:%s", stream.Filename))
+	audio, err := h.DB.GetAudio(h.DB.GenerateAudioCacheKey(stream.Filename))
 	if err != nil {
 		h.Logger.Error(fmt.Sprintf("Failed to get audio from cache for key %s", stream.Filename), err)
 		// Delete audio immediately on error
 		if h.DB != nil {
-			_ = h.DB.DeleteAudio(fmt.Sprintf("audio:%s", stream.Filename))
+			_ = h.DB.DeleteAudio(h.DB.GenerateAudioCacheKey(stream.Filename))
 		}
 		return
 	}
@@ -159,7 +271,7 @@ func (h *VoiceHandler) transcribeAndUpdate(s *discordgo.Session, stream *guild.U
 
 	// Delete audio immediately after transcription attempt (success or failure)
 	if h.DB != nil {
-		if err := h.DB.DeleteAudio(fmt.Sprintf("audio:%s", stream.Filename)); err != nil {
+		if err := h.DB.DeleteAudio(h.DB.GenerateAudioCacheKey(stream.Filename)); err != nil {
 			h.Logger.Error(fmt.Sprintf("Failed to delete audio from cache for key %s", stream.Filename), err)
 		}
 	}
@@ -176,7 +288,7 @@ func (h *VoiceHandler) transcribeAndUpdate(s *discordgo.Session, stream *guild.U
 	// Add actual transcription to history
 	state, ok := h.StateManager.GetGuildState(g.ID)
 	if ok {
-		state.Mutex.Lock()
+		state.MetaMutex.Lock()
 		entry := guild.TranscriptionEntry{
 			Duration:      duration,
 			Username:      stream.User.Username,
@@ -193,31 +305,37 @@ func (h *VoiceHandler) transcribeAndUpdate(s *discordgo.Session, stream *guild.U
 			history = history[len(history)-100:]
 		}
 		state.TranscriptionHistory[stream.VoiceChannelID] = history
-		state.Metrics.SuccessfulTranscriptions++
-		state.Mutex.Unlock()
+		state.MetaMutex.Unlock()
 	}
 
 }
 
-func (h *VoiceHandler) formatConnectionMessage(s *discordgo.Session, vc *discordgo.VoiceConnection, state *guild.GuildState) string {
+func (h *VoiceHandler) formatHeader(s *discordgo.Session, vc *discordgo.VoiceConnection, state *guild.GuildState) (string, error) {
 	channel, err := s.Channel(vc.ChannelID)
 	if err != nil {
-		return "Connected to voice channel."
+		return "", fmt.Errorf("could not get channel: %w", err)
 	}
 
 	g, err := s.State.Guild(channel.GuildID)
 	if err != nil {
-		return fmt.Sprintf("Connected to %s (%s).", channel.Name, channel.ID)
+		return "", fmt.Errorf("could not get guild: %w", err)
 	}
 
 	duration := time.Since(state.ConnectionStartTime).Round(time.Second)
 
-	// Build base message
 	var msg bytes.Buffer
 	msg.WriteString(fmt.Sprintf("**Connected to %s (%s) at %s (%s)**\n", channel.Name, channel.ID, g.Name, g.ID))
 	msg.WriteString(fmt.Sprintf("**Duration:** %s\n\n", duration))
 
-	// Get users in voice channel
+	return msg.String(), nil
+}
+
+func (h *VoiceHandler) formatUserList(s *discordgo.Session, vc *discordgo.VoiceConnection, state *guild.GuildState) (string, error) {
+	g, err := s.State.Guild(vc.GuildID)
+	if err != nil {
+		return "", fmt.Errorf("could not get guild: %w", err)
+	}
+
 	voiceStates := g.VoiceStates
 	usersInChannel := make(map[string]*discordgo.VoiceState)
 	for _, vs := range voiceStates {
@@ -227,21 +345,17 @@ func (h *VoiceHandler) formatConnectionMessage(s *discordgo.Session, vc *discord
 	}
 
 	if len(usersInChannel) == 0 {
-		msg.WriteString("*No users in channel*")
-		return msg.String()
+		return "*No users in channel*", nil
 	}
 
-	// Lock state to read SSRC maps safely
-	state.Mutex.Lock()
-	defer state.Mutex.Unlock()
+	state.MetaMutex.Lock()
+	defer state.MetaMutex.Unlock()
 
-	// Create reverse map for quick SSRC lookup
 	userSSRCMap := make(map[string][]uint32)
 	for ssrc, userID := range state.SSRCUserMap {
 		userSSRCMap[userID] = append(userSSRCMap[userID], ssrc)
 	}
 
-	// Build a sorted list of users by display name
 	type userEntry struct {
 		userID      string
 		user        *discordgo.User
@@ -264,36 +378,39 @@ func (h *VoiceHandler) formatConnectionMessage(s *discordgo.Session, vc *discord
 		})
 	}
 
-	// Sort alphabetically by display name
 	sort.Slice(userList, func(i, j int) bool {
 		return strings.ToLower(userList[i].displayName) < strings.ToLower(userList[j].displayName)
 	})
 
-	// Check if there are any unmapped SSRCs receiving audio
 	hasUnmappedSSRCs := len(state.UnmappedSSRCs) > 0
 
+	var msg bytes.Buffer
 	msg.WriteString(fmt.Sprintf("**Users in Channel:** %d total\n", len(usersInChannel)))
 	msg.WriteString("```\n")
 
+	state.StreamsMutex.Lock()
+	defer state.StreamsMutex.Unlock()
 	for _, entry := range userList {
-		// Check if user is currently speaking
-		isSpeaking := state.SpeakingUsers[entry.userID]
+		var isSpeaking bool
+		var speakingSSRC uint32
+		for ssrc, stream := range state.ActiveStreams {
+			if stream.User.ID == entry.userID {
+				isSpeaking = true
+				speakingSSRC = ssrc
+				break
+			}
+		}
 
-		// Check if this user has audio being received but no SSRC mapping
 		userHasUnmappedSSRC := false
 		if hasUnmappedSSRCs {
-			// If user has no SSRC mapping but we're receiving unmapped audio, they might be unavailable
 			_, hasMappedSSRC := userSSRCMap[entry.userID]
 			if !hasMappedSSRC {
-				// User could be the one with unmapped SSRC
 				userHasUnmappedSSRC = true
 			}
 		}
 
-		// Build user line
 		var status string
 		if entry.user.Bot {
-			// Check if this is Dexter itself
 			if entry.userID == s.State.User.ID {
 				status = "🤖 Dexter"
 			} else {
@@ -304,7 +421,7 @@ func (h *VoiceHandler) formatConnectionMessage(s *discordgo.Session, vc *discord
 		} else if entry.vs.SelfDeaf {
 			status = "🔇 (deafened)"
 		} else if isSpeaking {
-			status = "🔴 SPEAKING"
+			status = fmt.Sprintf("🔴 SPEAKING (SSRC: %d)", speakingSSRC)
 		} else if ssrcs, ok := userSSRCMap[entry.userID]; ok && len(ssrcs) > 0 {
 			status = fmt.Sprintf("💤 idle (SSRC: %d)", ssrcs[0])
 		} else if userHasUnmappedSSRC && hasUnmappedSSRCs {
@@ -316,7 +433,6 @@ func (h *VoiceHandler) formatConnectionMessage(s *discordgo.Session, vc *discord
 		msg.WriteString(fmt.Sprintf("%s | %s (@%s)\n", status, entry.displayName, entry.user.Username))
 		msg.WriteString(fmt.Sprintf("    User ID: %s\n", entry.userID))
 
-		// Show all known SSRCs for this user
 		if ssrcs, ok := userSSRCMap[entry.userID]; ok && len(ssrcs) > 0 {
 			msg.WriteString(fmt.Sprintf("    Known SSRCs: %v\n", ssrcs))
 		}
@@ -324,51 +440,51 @@ func (h *VoiceHandler) formatConnectionMessage(s *discordgo.Session, vc *discord
 	}
 
 	msg.WriteString("```")
+	return msg.String(), nil
+}
 
-	// Display unmapped SSRCs
-	msg.WriteString("\n**Unmapped SSRCs:**\n```\n")
-	if len(state.UnmappedSSRCs) > 0 {
-		var unmappedList []string
-		for ssrc := range state.UnmappedSSRCs {
-			unmappedList = append(unmappedList, fmt.Sprintf("%d", ssrc))
-		}
-		msg.WriteString(strings.Join(unmappedList, ", "))
-	} else {
-		msg.WriteString("No unmapped SSRCs.")
-	}
-	msg.WriteString("\n```")
-
-	// Display session metrics
-	msg.WriteString("\n**Session Metrics:**\n```\n")
-	msg.WriteString(fmt.Sprintf("Speaking Events: %d\n", state.Metrics.SpeakingEvents))
-	msg.WriteString(fmt.Sprintf("Streams Captured: %d\n", state.Metrics.CapturedStreams))
-	msg.WriteString(fmt.Sprintf("Successful Transcriptions: %d\n", state.Metrics.SuccessfulTranscriptions))
-	msg.WriteString("```")
-
-	// Display recent transcriptions and events (last 10 entries)
+func (h *VoiceHandler) formatTranscriptionHistory(vc *discordgo.VoiceConnection, state *guild.GuildState) string {
 	history := state.TranscriptionHistory[vc.ChannelID]
-	if len(history) > 0 {
-		msg.WriteString("\n**Recent Transcriptions:**\n```\n")
-
-		// Get last 10 entries
-		startIdx := 0
-		if len(history) > 10 {
-			startIdx = len(history) - 10
-		}
-
-		for _, entry := range history[startIdx:] {
-			if entry.IsEvent && entry.Duration == 0 {
-				// Events without duration (like "stopped speaking")
-				msg.WriteString(fmt.Sprintf("%s: %s\n", entry.Username, entry.Transcription))
-			} else {
-				// Events with duration or actual transcriptions
-				msg.WriteString(fmt.Sprintf("[%s] %s: %s\n", entry.Duration.Round(time.Second), entry.Username, entry.Transcription))
-			}
-		}
-		msg.WriteString("```")
-	} else {
-		msg.WriteString("\n**Recent Transcriptions:**\n```\nNo transcriptions yet.\n```")
+	if len(history) == 0 {
+		return ""
 	}
+
+	var msg bytes.Buffer
+	msg.WriteString("\n**Recent Transcriptions:**\n```\n")
+
+	startIdx := 0
+	if len(history) > 10 {
+		startIdx = len(history) - 10
+	}
+
+	for _, entry := range history[startIdx:] {
+		if entry.IsEvent && entry.Duration == 0 {
+			msg.WriteString(fmt.Sprintf("%s: %s\n", entry.Username, entry.Transcription))
+		} else {
+			msg.WriteString(fmt.Sprintf("[%s] %s: %s\n", entry.Duration.Round(time.Second), entry.Username, entry.Transcription))
+		}
+	}
+	msg.WriteString("```")
+	return msg.String()
+}
+
+func (h *VoiceHandler) formatConnectionMessage(s *discordgo.Session, vc *discordgo.VoiceConnection, state *guild.GuildState) string {
+	header, err := h.formatHeader(s, vc, state)
+	if err != nil {
+		return "Error formatting connection message header."
+	}
+
+	userList, err := h.formatUserList(s, vc, state)
+	if err != nil {
+		return "Error formatting user list."
+	}
+
+	transcriptionHistory := h.formatTranscriptionHistory(vc, state)
+
+	var msg bytes.Buffer
+	msg.WriteString(header)
+	msg.WriteString(userList)
+	msg.WriteString(transcriptionHistory)
 
 	return msg.String()
 }
@@ -384,17 +500,17 @@ func (h *VoiceHandler) finalizeChannelMove(s *discordgo.Session, vc *discordgo.V
 	}
 
 	// Finalize the old connection
-	oldState.Mutex.Lock()
+	oldState.MetaMutex.Lock()
 	duration := time.Since(oldState.ConnectionStartTime).Round(time.Second)
 	channel, _ := s.Channel(oldChannelID)
 	g, _ := s.State.Guild(guildID)
 
 	// Count unique users who spoke
 
-uniqueUsers := make(map[string]bool)
+	uniqueUsers := make(map[string]bool)
 	for _, userID := range oldState.SSRCUserMap {
-	
-uniqueUsers[userID] = true
+
+		uniqueUsers[userID] = true
 	}
 
 	// Update old connection message
@@ -412,14 +528,15 @@ uniqueUsers[userID] = true
 		}
 		_, _ = s.ChannelMessageEdit(oldState.ConnectionMessageChannelID, oldState.ConnectionMessageID, editContent)
 	}
+	oldState.MetaMutex.Unlock()
 
 	// Finalize any active streams
+	oldState.StreamsMutex.Lock()
 	for ssrc, stream := range oldState.ActiveStreams {
 		h.finalizeStream(s, guildID, ssrc, stream)
 		delete(oldState.ActiveStreams, ssrc)
 	}
-	oldState.Mutex.Unlock()
-
+	oldState.StreamsMutex.Unlock()
 	// Delete the old state
 	h.StateManager.DeleteGuildState(guildID)
 
@@ -435,7 +552,7 @@ uniqueUsers[userID] = true
 			g, _ = s.State.Guild(guildID)
 		}
 		if g != nil {
-			msg, _ := s.ChannelMessageSend(h.BotCfg.LogChannelID, fmt.Sprintf("Connecting to %s (%s) at %s (%s).", newChannel.Name, newChannel.ID, g.Name, g.ID))
+			msg, _ := s.ChannelMessageSend(h.DiscordCfg.LogChannelID, fmt.Sprintf("Connecting to %s (%s) at %s (%s).", newChannel.Name, newChannel.ID, g.Name, g.ID))
 			if msg != nil {
 				newState.ConnectionMessageID = msg.ID
 				newState.ConnectionMessageChannelID = msg.ChannelID
@@ -509,10 +626,11 @@ func (h *VoiceHandler) handleVoice(s *discordgo.Session, vc *discordgo.VoiceConn
 }
 
 func (h *VoiceHandler) handleAudioPacket(s *discordgo.Session, guildID string, p *discordgo.Packet, state *guild.GuildState) {
-	state.Mutex.Lock()
-	defer state.Mutex.Unlock()
+	state.StreamsMutex.Lock()
+	defer state.StreamsMutex.Unlock()
 	stream, ok := state.ActiveStreams[p.SSRC]
 	if !ok {
+		state.MetaMutex.Lock()
 		userID, userOk := state.SSRCUserMap[p.SSRC]
 		if !userOk {
 			// We're receiving audio from an SSRC we don't have mapped
@@ -522,8 +640,10 @@ func (h *VoiceHandler) handleAudioPacket(s *discordgo.Session, guildID string, p
 				state.UnmappedSSRCs = make(map[uint32]bool)
 			}
 			state.UnmappedSSRCs[p.SSRC] = true
+			state.MetaMutex.Unlock()
 			return
 		}
+		state.MetaMutex.Unlock()
 		user, err := s.User(userID)
 		if err != nil {
 			user = &discordgo.User{Username: "Unknown User", ID: userID}
@@ -551,7 +671,6 @@ func (h *VoiceHandler) handleAudioPacket(s *discordgo.Session, guildID string, p
 			Filename:       filename,
 		}
 		state.ActiveStreams[p.SSRC] = stream
-		state.Metrics.CapturedStreams++
 	}
 	stream.LastPacket = time.Now()
 	rtpPacket := rtpPacketPool.Get().(*rtp.Packet)
@@ -566,180 +685,21 @@ func (h *VoiceHandler) handleAudioPacket(s *discordgo.Session, guildID string, p
 }
 
 func (h *VoiceHandler) checkStreamTimeouts(s *discordgo.Session, guildID string, state *guild.GuildState) {
-	state.Mutex.Lock()
-	defer state.Mutex.Unlock()
+
+	state.StreamsMutex.Lock()
+
+	defer state.StreamsMutex.Unlock()
+
 	for ssrc, stream := range state.ActiveStreams {
+
 		if time.Since(stream.LastPacket) > time.Duration(h.BotCfg.VoiceTimeoutSeconds)*time.Second {
+
 			h.finalizeStream(s, guildID, ssrc, stream)
+
 			delete(state.ActiveStreams, ssrc)
-		}
-	}
-}
 
-func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
-	h.DisconnectFromVoice(s, m.GuildID)
-	time.Sleep(1 * time.Second)
-
-	g, err := s.State.Guild(m.GuildID)
-	if err != nil {
-		return
-	}
-	for _, vs := range g.VoiceStates {
-		if vs.UserID == m.Author.ID {
-			state := h.StateManager.GetOrStoreGuildState(m.GuildID)
-			if h.DB != nil {
-				if err := h.DB.SaveGuildState(m.GuildID, state); err != nil {
-					h.Logger.Error(fmt.Sprintf("Error saving guild state for guild %s", m.GuildID), err)
-				}
-			}
-			channel, err := s.Channel(vs.ChannelID)
-			if err != nil {
-				return
-			}
-			msg, _ := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Connecting to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
-			if msg != nil {
-				state.ConnectionMessageID = msg.ID
-				state.ConnectionMessageChannelID = msg.ChannelID
-				state.ConnectionStartTime = time.Now()
-			}
-
-			const maxRetries = 3
-			var vc *discordgo.VoiceConnection
-
-			for i := 0; i < maxRetries; i++ {
-				vc, err = s.ChannelVoiceJoin(m.GuildID, vs.ChannelID, false, false)
-				if err == nil {
-					break
-				}
-				retrySeconds := int(math.Pow(2, float64(i)))
-				if msg != nil {
-					_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect, retrying in %d seconds...", retrySeconds))
-				}
-				time.Sleep(time.Duration(retrySeconds) * time.Second)
-			}
-
-			if err != nil {
-				if msg != nil {
-					_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
-				}
-				h.DisconnectFromVoice(s, m.GuildID)
-				return
-			}
-
-			h.registerVoiceHandlers(vc)
-			state.ConnectionChannelID = vc.ChannelID
-			go h.handleVoice(s, vc, state)
-			return
-		}
-	}
-	_, _ = s.ChannelMessageSend(m.ChannelID, "You need to be in a voice channel for me to join!")
-}
-
-func (h *VoiceHandler) LeaveVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
-	h.DisconnectFromVoice(s, m.GuildID)
-}
-
-func (h *VoiceHandler) DisconnectFromVoice(s *discordgo.Session, guildID string) {
-	if vc, ok := s.VoiceConnections[guildID]; ok {
-		state, ok := h.StateManager.GetGuildState(guildID)
-		if !ok {
-			_ = vc.Disconnect()
-			return
 		}
 
-		// Cancel the context to signal the handleVoice goroutine to exit
-		if state.CancelFunc != nil {
-			state.CancelFunc()
-		}
-
-		// Disconnect from voice
-		_ = vc.Disconnect()
-
-		state.Mutex.Lock()
-		defer state.Mutex.Unlock()
-
-		if state.ConnectionMessageID != "" {
-			duration := time.Since(state.ConnectionStartTime).Round(time.Second)
-			channel, _ := s.Channel(state.ConnectionChannelID)
-			g, _ := s.State.Guild(guildID)
-
-			var editContent string
-			if channel != nil && g != nil {
-				// Count unique users who spoke
-			
-uniqueUsers := make(map[string]bool)
-				for _, userID := range state.SSRCUserMap {
-				
-uniqueUsers[userID] = true
-				}
-
-				editContent = fmt.Sprintf("**Disconnected from %s (%s) at %s (%s)**\n**Duration:** %s\n**Users tracked:** %d\n**Total SSRCs:** %d",
-					channel.Name, channel.ID, g.Name, g.ID, duration, len(uniqueUsers), len(state.SSRCUserMap))
-
-				// Add warning about unmapped SSRCs if any
-				if len(state.UnmappedSSRCs) > 0 {
-					editContent += fmt.Sprintf("\n⚠️ **Unmapped SSRCs:** %d (users who joined before bot)", len(state.UnmappedSSRCs))
-				}
-			} else {
-				editContent = fmt.Sprintf("Disconnected after %s.", duration)
-			}
-			_, _ = s.ChannelMessageEdit(state.ConnectionMessageChannelID, state.ConnectionMessageID, editContent)
-		}
-
-		for ssrc, stream := range state.ActiveStreams {
-			h.finalizeStream(s, guildID, ssrc, stream)
-			delete(state.ActiveStreams, ssrc)
-		}
-		h.StateManager.DeleteGuildState(guildID)
-	}
-}
-
-func (h *VoiceHandler) VoiceStateUpdate(s *discordgo.Session, vsu *discordgo.VoiceStateUpdate) {
-	// Only care about our own bot's voice state
-	if vsu.UserID != s.State.User.ID {
-		return
 	}
 
-	// Check if we have a guild state for this guild
-	_, hasState := h.StateManager.GetGuildState(vsu.GuildID)
-	isConnecting := h.StateManager.IsGuildConnecting(vsu.GuildID)
-	isDisconnecting := h.StateManager.IsGuildDisconnecting(vsu.GuildID)
-
-	// If bot is in a voice channel
-	if vsu.ChannelID != "" {
-		if isConnecting {
-			// We are in the process of connecting, so ignore this event
-			return
-		}
-		if !hasState || isDisconnecting {
-			// Zombie connection detected - bot is in voice but we have no state or we're trying to disconnect
-			if isDisconnecting {
-				h.Logger.Error(fmt.Sprintf("Reconnection attempt detected for disconnecting guild %s - force disconnecting", vsu.GuildID), nil)
-			} else {
-				h.Logger.Error(fmt.Sprintf("Zombie voice connection detected in guild %s channel %s - disconnecting", vsu.GuildID, vsu.ChannelID), nil)
-			}
-
-			// Disconnect aggressively - this will trigger another VoiceStateUpdate when successful
-			if vc, ok := s.VoiceConnections[vsu.GuildID]; ok {
-				_ = vc.Disconnect()
-				delete(s.VoiceConnections, vsu.GuildID)
-			}
-
-			// Force leave at Discord API level by updating voice state to null channel
-			// This is more forceful than just calling Disconnect() on the connection
-			_ = s.ChannelVoiceJoinManual(vsu.GuildID, "", false, false)
-		} else {
-			// This is a valid, active connection. Re-register handlers to be safe.
-			if vc, ok := s.VoiceConnections[vsu.GuildID]; ok {
-				h.registerVoiceHandlers(vc)
-			}
-		}
-	} else {
-		// Bot left voice channel
-		// Only clear disconnecting flag if we have a guild state (intentional disconnect via !leave)
-		// If we don't have a guild state, keep the flag set to prevent reconnection loops
-		if hasState {
-			h.StateManager.ClearGuildDisconnecting(vsu.GuildID)
-		}
-	}
 }

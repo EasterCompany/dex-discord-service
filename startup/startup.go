@@ -27,8 +27,9 @@ func PerformCleanup(s *discordgo.Session, localCache cache.Cache, discordCfg *co
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		results <- cleanup.ClearChannel(s, discordCfg.LogChannelID, bootMessageID, discordCfg)
+		results <- cleanup.ClearChannel(s, discordCfg.LogChannelID, bootMessageID, discordCfg, logger)
 	}()
+
 	wg.Wait()
 	close(results)
 

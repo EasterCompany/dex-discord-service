@@ -18,8 +18,9 @@ type TranscriptionEntry struct {
 
 // GuildState holds the state for a single guild
 type GuildState struct {
-	Mutex                      sync.Mutex             `json:"-"`
+	StreamsMutex               sync.Mutex             `json:"-"`
 	ActiveStreams              map[uint32]*UserStream `json:"-"`
+	MetaMutex                  sync.Mutex             `json:"-"`
 	SSRCUserMap                map[uint32]string
 	UnmappedSSRCs              map[uint32]bool                 `json:"-"` // Track SSRCs we've received audio from but don't have user mappings for
 	TranscriptionHistory       map[string][]TranscriptionEntry `json:"-"` // Full transcription log for the session, keyed by channel ID

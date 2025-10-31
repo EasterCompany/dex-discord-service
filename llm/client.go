@@ -74,8 +74,16 @@ type LLMServerRequest struct {
 type LLMServerResponse struct {
 	Model     string    `json:"model"`
 	CreatedAt time.Time `json:"created_at"`
-	Message   Message   `json:"message"`
-	Done      bool      `json:"done"`
+	Message   struct {
+		Role    string `json:"role"`
+		Content string `json:"content"`
+	} `json:"message"`
+	Done bool `json:"done"`
+}
+
+type EngagementDecision struct {
+	Action   string `json:"action"`
+	Argument string `json:"argument"`
 }
 
 type EngagementCheckContext struct {
@@ -85,12 +93,12 @@ type EngagementCheckContext struct {
 	History []*discordgo.Message
 }
 
-func (c *Client) GetEngagementDecision(s *discordgo.Session, m *discordgo.MessageCreate, history []*discordgo.Message) (string, string, error) {
+func (c *Client) getEngagementContext(s *discordgo.Session, m *discordgo.MessageCreate) (*discordgo.Guild, *discordgo.Channel, error) {
 	channel, err := s.State.Channel(m.ChannelID)
 	if err != nil {
 		channel, err = s.Channel(m.ChannelID)
 		if err != nil {
-			return "IGNORE", "", fmt.Errorf("could not get channel: %w", err)
+			return nil, nil, fmt.Errorf("could not get channel: %w", err)
 		}
 	}
 
@@ -98,12 +106,16 @@ func (c *Client) GetEngagementDecision(s *discordgo.Session, m *discordgo.Messag
 	if m.GuildID != "" {
 		guild, err = s.State.Guild(m.GuildID)
 		if err != nil {
-			return "IGNORE", "", fmt.Errorf("could not get guild: %w", err)
+			return nil, nil, fmt.Errorf("could not get guild: %w", err)
 		}
 	} else {
 		guild = &discordgo.Guild{Name: "Direct Message"}
 	}
 
+	return guild, channel, nil
+}
+
+func (c *Client) buildEngagementPrompt(guild *discordgo.Guild, channel *discordgo.Channel, m *discordgo.MessageCreate, history []*discordgo.Message) (string, error) {
 	engagementCtx := EngagementCheckContext{
 		Guild:   guild,
 		Channel: channel,
@@ -114,75 +126,92 @@ func (c *Client) GetEngagementDecision(s *discordgo.Session, m *discordgo.Messag
 	var promptBuf bytes.Buffer
 	tmpl, err := template.New("engagementCheck").Parse(engagementCheckTemplate)
 	if err != nil {
-		return "IGNORE", "", fmt.Errorf("failed to parse engagement check template: %w", err)
+		return "", fmt.Errorf("failed to parse engagement check template: %w", err)
 	}
 	if err := tmpl.Execute(&promptBuf, &engagementCtx); err != nil {
-		return "IGNORE", "", fmt.Errorf("failed to execute engagement check template: %w", err)
+		return "", fmt.Errorf("failed to execute engagement check template: %w", err)
 	}
 
+	return promptBuf.String(), nil
+}
+
+func (c *Client) sendEngagementRequest(prompt string) (*LLMServerResponse, error) {
 	request := LLMServerRequest{
 		Model: c.EngagementModel,
 		Messages: []Message{
-			{Role: "user", Content: promptBuf.String()},
+			{Role: "user", Content: prompt},
 		},
 		Stream: false,
 	}
 
 	payload, err := json.Marshal(request)
 	if err != nil {
-		return "IGNORE", "", fmt.Errorf("failed to marshal engagement request: %w", err)
+		return nil, fmt.Errorf("failed to marshal engagement request: %w", err)
 	}
 
 	req, err := http.NewRequestWithContext(context.Background(), "POST", c.LLMServerURL, bytes.NewBuffer(payload))
 	if err != nil {
-		return "IGNORE", "", fmt.Errorf("failed to create engagement request: %w", err)
+		return nil, fmt.Errorf("failed to create engagement request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "IGNORE", "", fmt.Errorf("failed to send engagement request to LLM server: %w", err)
+		return nil, fmt.Errorf("failed to send engagement request to LLM server: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
-		return "IGNORE", "", fmt.Errorf("LLM server returned non-200 status for engagement check: %s", resp.Status)
+		return nil, fmt.Errorf("LLM server returned non-200 status for engagement check: %s", resp.Status)
 	}
 
 	var llmResp LLMServerResponse
 	if err := json.NewDecoder(resp.Body).Decode(&llmResp); err != nil {
-		return "IGNORE", "", fmt.Errorf("failed to decode engagement response: %w", err)
+		return nil, fmt.Errorf("failed to decode engagement response: %w", err)
 	}
 
-	decision := strings.TrimSpace(llmResp.Message.Content)
-	parts := strings.Fields(decision)
+	return &llmResp, nil
+}
 
-	if len(parts) == 0 {
-		return "IGNORE", "", nil
+func (c *Client) parseEngagementResponse(llmResp *LLMServerResponse) (string, string) {
+	var decision EngagementDecision
+	if err := json.Unmarshal([]byte(llmResp.Message.Content), &decision); err != nil {
+		return "IGNORE", ""
 	}
 
-	switch parts[0] {
+	switch decision.Action {
 	case "REACT":
-		if len(parts) > 1 {
-			if parts[1] == "REPLY" || parts[1] == "IGNORE" || parts[1] == "STOP" || parts[1] == "CONTINUE" {
-				return "IGNORE", "", nil
-			}
-			return "REACT", parts[1], nil
-		}
-		return "IGNORE", "", nil
+		return "REACT", decision.Argument
 	case "REPLY":
-		if len(parts) > 1 {
-			return "REACT", parts[1], nil
-		}
-		return "REPLY", "", nil
+		return "REPLY", ""
 	case "STOP":
-		return "STOP", "", nil
+		return "STOP", ""
 	case "CONTINUE":
-		return "CONTINUE", "", nil
+		return "CONTINUE", ""
 	case "IGNORE":
-		return "IGNORE", "", nil
+		return "IGNORE", ""
 	}
 
-	return "REACT", parts[0], nil
+	return "IGNORE", ""
+}
+
+func (c *Client) GetEngagementDecision(s *discordgo.Session, m *discordgo.MessageCreate, history []*discordgo.Message) (string, string, error) {
+	guild, channel, err := c.getEngagementContext(s, m)
+	if err != nil {
+		return "IGNORE", "", err
+	}
+
+	prompt, err := c.buildEngagementPrompt(guild, channel, m, history)
+	if err != nil {
+		return "IGNORE", "", err
+	}
+
+	llmResp, err := c.sendEngagementRequest(prompt)
+	if err != nil {
+		return "IGNORE", "", err
+	}
+
+	decision, arg := c.parseEngagementResponse(llmResp)
+	return decision, arg, nil
 }
 
 type ContextBlock struct {

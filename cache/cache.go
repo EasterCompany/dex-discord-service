@@ -39,6 +39,26 @@ type Cache interface {
 	DeleteAudio(key string) error
 	CleanAllAudio() (CleanResult, error)
 	CleanAllMessages() (CleanResult, error)
+	GenerateMessageCacheKey(guildID, channelID string) string
+	GenerateAudioCacheKey(filename string) string
+	GenerateGuildStateKey(guildID string) string
+}
+
+// ... (existing code)
+
+func (db *DB) GenerateMessageCacheKey(guildID, channelID string) string {
+	if guildID == "" {
+		return db.prefixedKey(fmt.Sprintf("messages:dm:%s", channelID))
+	}
+	return db.prefixedKey(fmt.Sprintf("messages:guild:%s:channel:%s", guildID, channelID))
+}
+
+func (db *DB) GenerateAudioCacheKey(filename string) string {
+	return db.prefixedKey(fmt.Sprintf("audio:%s", filename))
+}
+
+func (db *DB) GenerateGuildStateKey(guildID string) string {
+	return db.prefixedKey(fmt.Sprintf("guild:%s:state", guildID))
 }
 
 type DebugCache interface {
@@ -164,7 +184,7 @@ func (db *DB) GetLastNMessages(key string, n int64) ([]*discordgo.Message, error
 }
 
 func (db *DB) SaveGuildState(guildID string, state *guild.GuildState) error {
-	key := db.prefixedKey(fmt.Sprintf("guild:%s:state", guildID))
+	key := db.GenerateGuildStateKey(guildID)
 	jsonState, err := json.Marshal(state)
 	if err != nil {
 		return fmt.Errorf("could not marshal guild state: %w", err)
@@ -173,7 +193,7 @@ func (db *DB) SaveGuildState(guildID string, state *guild.GuildState) error {
 }
 
 func (db *DB) LoadGuildState(guildID string) (*guild.GuildState, error) {
-	key := db.prefixedKey(fmt.Sprintf("guild:%s:state", guildID))
+	key := db.GenerateGuildStateKey(guildID)
 	jsonState, err := db.rdb.Get(db.ctx, key).Result()
 	if err != nil {
 		if err == redis.Nil {
@@ -242,41 +262,29 @@ func (db *DB) DeleteAudio(key string) error {
 
 func (db *DB) cleanKeysByPattern(pattern string) (CleanResult, error) {
 	var result CleanResult
-	var keysToDelete []string
+	pipe := db.rdb.Pipeline()
 	iter := db.rdb.Scan(db.ctx, 0, db.prefixedKey(pattern), 0).Iterator()
 	for iter.Next(db.ctx) {
-		keysToDelete = append(keysToDelete, iter.Val())
+		key := iter.Val()
+		pipe.MemoryUsage(db.ctx, key)
+		pipe.Del(db.ctx, key)
+		result.Count++
 	}
 	if err := iter.Err(); err != nil {
 		return result, err
 	}
-	if len(keysToDelete) == 0 {
-		return result, nil
-	}
-	pipe := db.rdb.Pipeline()
-	for _, key := range keysToDelete {
-		pipe.MemoryUsage(db.ctx, key)
-	}
+
 	cmds, err := pipe.Exec(db.ctx)
 	if err != nil {
 		return result, err
 	}
-	for _, cmd := range cmds {
-		if size, err := cmd.(*redis.IntCmd).Result(); err == nil {
+
+	for i := 0; i < result.Count; i++ {
+		if size, err := cmds[i*2].(*redis.IntCmd).Result(); err == nil {
 			result.BytesFreed += size
 		}
 	}
 
-	pipe = db.rdb.Pipeline()
-	for _, key := range keysToDelete {
-		pipe.Del(db.ctx, key)
-	}
-	_, err = pipe.Exec(db.ctx)
-	if err != nil {
-		return result, err
-	}
-
-	result.Count = len(keysToDelete)
 	return result, nil
 }
 

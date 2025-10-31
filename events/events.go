@@ -4,7 +4,6 @@ package events
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/EasterCompany/dex-discord-interface/cache"
@@ -39,17 +38,6 @@ func NewHandler(db cache.Cache, discordCfg *config.DiscordConfig, botCfg *config
 		SttClient:    sttClient,
 		LLMClient:    llmClient,
 	}
-}
-
-func (h *Handler) GenerateMessageCacheKey(guildID, channelID string) string {
-	if guildID == "" {
-		return fmt.Sprintf("messages:dm:%s", channelID)
-	}
-	return fmt.Sprintf("messages:guild:%s:channel:%s", guildID, channelID)
-}
-
-func (h *Handler) GenerateAudioCacheKey(filename string) string {
-	return fmt.Sprintf("audio:%s", filename)
 }
 
 func (h *Handler) Ready(s *discordgo.Session, r *discordgo.Ready) (int, int64) {
@@ -118,7 +106,7 @@ func (h *Handler) fetchAndStoreLast50Messages(s *discordgo.Session, guildID, cha
 	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
 		messages[i], messages[j] = messages[j], messages[i]
 	}
-	key := h.GenerateMessageCacheKey(guildID, channelID)
+	key := h.DB.GenerateMessageCacheKey(guildID, channelID)
 
 	var totalSize int64
 	for _, m := range messages {
@@ -139,53 +127,4 @@ func (h *Handler) fetchAndStoreLast50Messages(s *discordgo.Session, guildID, cha
 func (h *Handler) ChannelCreate(s *discordgo.Session, c *discordgo.ChannelCreate) {
 	// This handler is intentionally left empty.
 	// Registering this handler is enough for discordgo to process the event and update the state.
-}
-
-func (h *Handler) MessageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
-	if m.Author.ID == s.State.User.ID {
-		return
-	}
-
-	// Check if the message is a command
-	if strings.HasPrefix(m.Content, "!") {
-		h.routeCommand(s, m)
-		return
-	}
-
-	userState := h.UserManager.GetOrCreateUserState(m.Author.ID)
-	userState.Mutex.Lock()
-
-	switch userState.State {
-	case StatePending:
-		// If a response is pending, cancel it and let the new message trigger a new response.
-		if userState.Timer != nil {
-			userState.Timer.Stop()
-		}
-		userState.State = StateIdle
-	case StateStreaming:
-		// If a response is streaming, cancel it and delete the partial message.
-		if userState.CancelFunc != nil {
-			userState.CancelFunc()
-		}
-		_ = s.ChannelMessageDelete(userState.ChannelID, userState.MessageID)
-		userState.State = StateIdle
-	}
-
-	userState.Mutex.Unlock()
-
-	if h.DB != nil {
-		if m.GuildID == "" {
-			if err := h.DB.AddDMChannel(m.ChannelID); err != nil {
-				h.Logger.Error("Error adding DM channel to cache", err)
-			}
-		}
-		key := h.GenerateMessageCacheKey(m.GuildID, m.ChannelID)
-		if err := h.DB.AddMessage(key, m.Message); err != nil {
-			h.Logger.Error(fmt.Sprintf("Error saving message %s", m.ID), err)
-		}
-
-		if h.LLMClient != nil {
-			go h.processLLMResponse(s, m)
-		}
-	}
 }
