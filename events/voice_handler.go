@@ -86,9 +86,14 @@ func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreat
 		// If in a different channel, disconnect first before moving.
 		h.Logger.Info(fmt.Sprintf("Bot is moving from voice channel %s to %s.", vc.ChannelID, userVoiceState))
 		h.disconnectFromVoice(s, m.GuildID)
+		// Wait for complete cleanup
+		time.Sleep(2 * time.Second)
 	}
 
-	// At this point, the bot is not in any voice channel in this guild, so we can join.
+	// Clean up any existing state before creating a new one
+	h.StateManager.DeleteGuildState(m.GuildID)
+
+	// Create fresh state for this connection attempt
 	state := h.StateManager.GetOrStoreGuildState(m.GuildID)
 	if h.DB != nil {
 		if err := h.DB.SaveGuildState(m.GuildID, state); err != nil {
@@ -102,6 +107,10 @@ func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreat
 		return
 	}
 
+	const maxRetries = 3
+	var vc *discordgo.VoiceConnection
+
+	// Post connection message
 	msg, _ := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Connecting to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
 	if msg != nil {
 		state.ConnectionMessageID = msg.ID
@@ -109,26 +118,65 @@ func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreat
 		state.ConnectionStartTime = time.Now()
 	}
 
-	const maxRetries = 3
-	var vc *discordgo.VoiceConnection
-
+	// Connection attempts - minimal interference, let Discord do its thing
 	for i := 0; i < maxRetries; i++ {
+		h.Logger.Info(fmt.Sprintf("Attempting to join voice channel %s (attempt %d/%d)", userVoiceState, i+1, maxRetries))
+
 		vc, err = s.ChannelVoiceJoin(m.GuildID, userVoiceState, false, false)
-		if err == nil {
-			vc.AddHandler(func(vc *discordgo.VoiceConnection, p *discordgo.VoiceSpeakingUpdate) {
-				h.SpeakingUpdate(vc, p)
-			})
-			break
+
+		if err != nil {
+			h.Logger.Error(fmt.Sprintf("Attempt %d failed to establish connection", i+1), err)
+
+			// Simple cleanup - just close the connection without triggering full disconnect logic
+			if existingVC, exists := s.VoiceConnections[m.GuildID]; exists {
+				h.Logger.Info("Closing partial connection for retry")
+				existingVC.Close()
+				// Give Discord time to clean up
+				time.Sleep(2 * time.Second)
+			}
+
+			// Update status message
+			if msg != nil && i < maxRetries-1 {
+				retrySeconds := int(math.Pow(2, float64(i)))
+				_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect, retrying in %d seconds...", retrySeconds))
+				time.Sleep(time.Duration(retrySeconds) * time.Second)
+			}
+			continue
 		}
-		h.Logger.Error(fmt.Sprintf("Attempt %d to join voice channel failed", i+1), err)
-		retrySeconds := int(math.Pow(2, float64(i)))
-		if msg != nil {
-			_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect, retrying in %d seconds...", retrySeconds))
+
+		// Connection established - attach speaking handler IMMEDIATELY to catch all events
+		// This must happen before waiting for Ready or we'll miss initial speaking updates
+		h.Logger.Info(fmt.Sprintf("Connection established, attaching speaking handler immediately (vc.Ready=%v)", vc.Ready))
+		vc.AddHandler(func(vc *discordgo.VoiceConnection, p *discordgo.VoiceSpeakingUpdate) {
+			h.SpeakingUpdate(vc, p)
+		})
+
+		// Now wait for it to be fully ready before starting voice processing
+		h.Logger.Info("Waiting for ready state...")
+
+		ready := false
+		for attempt := 0; attempt < 300; attempt++ { // 30 seconds total
+			if vc.Ready {
+				h.Logger.Info(fmt.Sprintf("Voice connection ready after %d ms", attempt*100))
+				ready = true
+				break
+			}
+			time.Sleep(100 * time.Millisecond)
 		}
-		time.Sleep(time.Duration(retrySeconds) * time.Second)
+
+		if !ready {
+			h.Logger.Error("Connection established but failed to reach ready state after 30 seconds", nil)
+			vc.Close()
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		// SUCCESS - connection is fully ready
+		h.Logger.Info(fmt.Sprintf("Successfully joined voice channel %s on attempt %d", userVoiceState, i+1))
+		break
 	}
 
-	if err != nil {
+	if err != nil || vc == nil || !vc.Ready {
 		if msg != nil {
 			_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
 		}
@@ -136,7 +184,10 @@ func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreat
 		return
 	}
 
+	// Speaking handler already attached immediately after connection (to catch all events)
+	// Now start the voice processing goroutine
 	state.ConnectionChannelID = vc.ChannelID
+	h.Logger.Info(fmt.Sprintf("Starting handleVoice for guild %s", m.GuildID))
 	go h.handleVoice(s, vc, state)
 }
 
@@ -183,6 +234,7 @@ func (h *VoiceHandler) disconnectFromVoice(s *discordgo.Session, guildID string)
 		defer state.MetaMutex.Unlock()
 
 		if state.ConnectionMessageID != "" {
+			h.Logger.Info(fmt.Sprintf("Updating disconnect message %s in channel %s", state.ConnectionMessageID, state.ConnectionMessageChannelID))
 			duration := time.Since(state.ConnectionStartTime).Round(time.Second)
 			channel, _ := s.Channel(state.ConnectionChannelID)
 			g, _ := s.State.Guild(guildID)
@@ -205,7 +257,14 @@ func (h *VoiceHandler) disconnectFromVoice(s *discordgo.Session, guildID string)
 			} else {
 				editContent = fmt.Sprintf("Disconnected after %s.", duration)
 			}
-			_, _ = s.ChannelMessageEdit(state.ConnectionMessageChannelID, state.ConnectionMessageID, editContent)
+			_, err := s.ChannelMessageEdit(state.ConnectionMessageChannelID, state.ConnectionMessageID, editContent)
+			if err != nil {
+				h.Logger.Error("Failed to update disconnect message", err)
+			} else {
+				h.Logger.Info("Successfully updated disconnect message")
+			}
+		} else {
+			h.Logger.Info("No connection message ID found, skipping message update")
 		}
 
 		state.StreamsMutex.Lock()
@@ -230,19 +289,24 @@ func (h *VoiceHandler) getDisplayName(s *discordgo.Session, guildID string, user
 }
 
 func (h *VoiceHandler) SpeakingUpdate(vc *discordgo.VoiceConnection, p *discordgo.VoiceSpeakingUpdate) {
+	h.Logger.Info(fmt.Sprintf("SpeakingUpdate received: UserID=%s, SSRC=%d, Speaking=%v", p.UserID, p.SSRC, p.Speaking))
+
 	user, err := h.Session.User(p.UserID)
 	if err != nil {
+		h.Logger.Error(fmt.Sprintf("Failed to get user info for UserID %s", p.UserID), err)
 		user = &discordgo.User{ID: p.UserID, Username: "Unknown User"}
 	}
 
 	// Ignore bots (including Dexter itself)
 	if user.Bot {
+		h.Logger.Info(fmt.Sprintf("Ignoring bot user: %s (@%s)", user.Username, user.Username))
 		return
 	}
 
 	guildID := vc.GuildID
 	state, ok := h.StateManager.GetGuildState(guildID)
 	if !ok {
+		h.Logger.Error(fmt.Sprintf("No state found for guild %s in SpeakingUpdate", guildID), nil)
 		return
 	}
 
@@ -254,6 +318,7 @@ func (h *VoiceHandler) SpeakingUpdate(vc *discordgo.VoiceConnection, p *discordg
 	// We want to capture SSRCs in ALL cases to handle pre-existing users
 	state.MetaMutex.Lock()
 	state.SSRCUserMap[uint32(p.SSRC)] = p.UserID
+	h.Logger.Info(fmt.Sprintf("Mapped SSRC %d to user %s (@%s, ID: %s). Total SSRCs: %d", p.SSRC, user.Username, user.Username, p.UserID, len(state.SSRCUserMap)))
 	state.MetaMutex.Unlock()
 
 	// Save state to DB
@@ -617,16 +682,8 @@ func (h *VoiceHandler) finalizeChannelMove(s *discordgo.Session, vc *discordgo.V
 }
 
 func (h *VoiceHandler) handleVoice(s *discordgo.Session, vc *discordgo.VoiceConnection, state *guild.GuildState) {
-	for i := 0; i < 100; i++ {
-		if vc.Ready {
-			break
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	if !vc.Ready {
-		h.Logger.Error("Timeout waiting for voice connection to be ready", nil)
-		return
-	}
+	// Connection is already Ready when we get here (checked in JoinVoice)
+	h.Logger.Info("Voice handler started, connection is ready")
 
 	timeoutTicker := time.NewTicker(time.Duration(h.BotCfg.VoiceTimeoutSeconds) * time.Second)
 	defer timeoutTicker.Stop()
