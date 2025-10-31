@@ -440,28 +440,29 @@ func (h *VoiceHandler) formatUserList(s *discordgo.Session, vc *discordgo.VoiceC
 	}
 
 	msg.WriteString("```")
+	msg.WriteString(fmt.Sprintf("\n**Unmapped SSRCs:** %d\n", len(state.UnmappedSSRCs)))
 	return msg.String(), nil
 }
 
 func (h *VoiceHandler) formatTranscriptionHistory(vc *discordgo.VoiceConnection, state *guild.GuildState) string {
 	history := state.TranscriptionHistory[vc.ChannelID]
-	if len(history) == 0 {
-		return ""
-	}
-
 	var msg bytes.Buffer
 	msg.WriteString("\n**Recent Transcriptions:**\n```\n")
 
-	startIdx := 0
-	if len(history) > 10 {
-		startIdx = len(history) - 10
-	}
+	if len(history) == 0 {
+		msg.WriteString("No transcriptions yet.\n")
+	} else {
+		startIdx := 0
+		if len(history) > 10 {
+			startIdx = len(history) - 10
+		}
 
-	for _, entry := range history[startIdx:] {
-		if entry.IsEvent && entry.Duration == 0 {
-			msg.WriteString(fmt.Sprintf("%s: %s\n", entry.Username, entry.Transcription))
-		} else {
-			msg.WriteString(fmt.Sprintf("[%s] %s: %s\n", entry.Duration.Round(time.Second), entry.Username, entry.Transcription))
+		for _, entry := range history[startIdx:] {
+			if entry.IsEvent && entry.Duration == 0 {
+				msg.WriteString(fmt.Sprintf("%s: %s\n", entry.Username, entry.Transcription))
+			} else {
+				msg.WriteString(fmt.Sprintf("[%s] %s: %s\n", entry.Duration.Round(time.Second), entry.Username, entry.Transcription))
+			}
 		}
 	}
 	msg.WriteString("```")
