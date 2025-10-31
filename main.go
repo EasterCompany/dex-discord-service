@@ -42,6 +42,11 @@ func main() {
 
 	fmt.Println("Connected to Discord!")
 
+	// Clean log channel before creating new dashboards
+	if err := dashboard.CleanLogChannel(session, cfg.LogChannelID); err != nil {
+		log.Printf("Warning: Failed to clean log channel: %v", err)
+	}
+
 	// Initialize dashboard manager
 	dashboardManager := dashboard.NewManager(session, cfg.LogChannelID)
 
