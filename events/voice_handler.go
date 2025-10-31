@@ -56,7 +56,6 @@ func NewVoiceHandler(s *discordgo.Session, logger logger.Logger, stateManager *S
 
 func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
 	h.disconnectFromVoice(s, m.GuildID)
-	time.Sleep(1 * time.Second)
 
 	g, err := s.State.Guild(m.GuildID)
 	if err != nil {
@@ -135,6 +134,25 @@ func (h *VoiceHandler) disconnectFromVoice(s *discordgo.Session, guildID string)
 
 		// Disconnect from voice
 		_ = vc.Disconnect()
+
+		// Poll until the voice connection is actually gone from s.VoiceConnections
+		ticker := time.NewTicker(100 * time.Millisecond)
+		defer ticker.Stop()
+		timeout := time.After(5 * time.Second) // 5 second timeout
+
+		for {
+			select {
+			case <-ticker.C:
+				if _, stillConnected := s.VoiceConnections[guildID]; !stillConnected {
+					h.Logger.Info(fmt.Sprintf("Successfully disconnected from voice channel in guild %s.", guildID))
+					goto EndPolling // Exit the polling loop
+				}
+			case <-timeout:
+				h.Logger.Error(fmt.Sprintf("Timeout waiting for voice channel disconnection in guild %s.", guildID), nil)
+				goto EndPolling // Exit the polling loop due to timeout
+			}
+		}
+	EndPolling:
 
 		state.MetaMutex.Lock()
 		defer state.MetaMutex.Unlock()
