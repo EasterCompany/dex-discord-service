@@ -89,6 +89,7 @@ func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreat
 				if err == nil {
 					break
 				}
+				h.Logger.Error(fmt.Sprintf("Attempt %d to join voice channel failed", i+1), err)
 				retrySeconds := int(math.Pow(2, float64(i)))
 				if msg != nil {
 					_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect, retrying in %d seconds...", retrySeconds))
