@@ -1,19 +1,25 @@
 #!/bin/bash
 
-echo "Stopping and disabling the systemd service..."
-sudo systemctl stop dex-discord-interface.service
-sudo systemctl disable dex-discord-interface.service
+set -e
 
-echo "Removing the systemd service file..."
-sudo rm -f /etc/systemd/system/dex-discord-interface.service
+SERVICE_NAME="dex-discord-interface"
+SERVICE_FILE="$HOME/.config/systemd/user/$SERVICE_NAME.service"
+EXECUTABLE_PATH="$HOME/.local/bin/$SERVICE_NAME"
 
-echo "Removing the executable..."
-sudo rm -f /usr/local/bin/dex-discord-interface
+echo "Starting user-level uninstallation..."
 
-echo "Removing configuration files..."
-sudo rm -rf /root/Dexter
+# --- Stop and disable service ---
+echo "Stopping and disabling the systemd user service..."
+systemctl --user stop "$SERVICE_NAME.service" || true
+systemctl --user disable "$SERVICE_NAME.service" || true
 
-echo "Reloading systemd..."
-sudo systemctl daemon-reload
+# --- Remove files ---
+echo "Removing files..."
+rm -f "$SERVICE_FILE"
+rm -f "$EXECUTABLE_PATH"
 
-echo "Uninstallation complete."
+# --- Systemd ---
+echo "Reloading systemd user daemon..."
+systemctl --user daemon-reload
+
+echo "✅ Uninstallation complete."

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"reflect"
 	"time"
 
@@ -9,8 +10,12 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-// GenericEventHandler logs any Discord event to the events dashboard.
-func GenericEventHandler(d *dashboard.EventsDashboard) func(s *discordgo.Session, i interface{}) {
+// GenericEventHandler logs any Discord event to the events dashboard and updates the voice state.
+func GenericEventHandler(
+	eventsDashboard *dashboard.EventsDashboard,
+	voiceDashboard *dashboard.VoiceDashboard,
+	voiceState *dashboard.VoiceState,
+) func(s *discordgo.Session, i interface{}) {
 	return func(s *discordgo.Session, i interface{}) {
 		timestamp := time.Now().Format("15:04:05")
 		var logEntry string
@@ -57,7 +62,13 @@ func GenericEventHandler(d *dashboard.EventsDashboard) func(s *discordgo.Session
 			logEntry = fmt.Sprintf("[%s] Channel #%s deleted", timestamp, e.Name)
 
 		case *discordgo.VoiceStateUpdate:
-			// Ignore mute/deafen and other minor state changes to reduce noise
+			// Update the voice state tracker
+			voiceState.Update(e)
+			if err := voiceDashboard.Update(); err != nil {
+				log.Printf("Error updating voice dashboard: %v", err)
+			}
+
+			// Ignore mute/deafen and other minor state changes to reduce noise for logging
 			if e.BeforeUpdate != nil && e.ChannelID == e.BeforeUpdate.ChannelID {
 				return
 			}
@@ -93,7 +104,7 @@ func GenericEventHandler(d *dashboard.EventsDashboard) func(s *discordgo.Session
 		}
 
 		if logEntry != "" {
-			d.AddEvent(logEntry)
+			eventsDashboard.AddEvent(logEntry)
 		}
 	}
 }

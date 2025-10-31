@@ -1,6 +1,7 @@
 package dashboard
 
 import (
+	"github.com/EasterCompany/dex-discord-interface/cache"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -9,6 +10,8 @@ type Manager struct {
 	session      *discordgo.Session
 	logChannelID string
 	serverID     string
+	redisClient  *cache.RedisClient
+	VoiceState   *VoiceState
 
 	Server   *ServerDashboard
 	Logs     *LogsDashboard
@@ -18,16 +21,19 @@ type Manager struct {
 }
 
 // NewManager creates a new dashboard manager
-func NewManager(session *discordgo.Session, logChannelID, serverID string) *Manager {
+func NewManager(session *discordgo.Session, logChannelID, serverID string, redisClient *cache.RedisClient) *Manager {
+	voiceState := NewVoiceState()
 	return &Manager{
 		session:      session,
 		logChannelID: logChannelID,
 		serverID:     serverID,
+		redisClient:  redisClient,
+		VoiceState:   voiceState,
 		Server:       NewServerDashboard(session, logChannelID, serverID),
-		Logs:         NewLogsDashboard(session, logChannelID),
-		Events:       NewEventsDashboard(session, logChannelID),
-		Messages:     NewMessagesDashboard(session, logChannelID),
-		Voice:        NewVoiceDashboard(session, logChannelID),
+		Logs:         NewLogsDashboard(session, logChannelID, redisClient),
+		Events:       NewEventsDashboard(session, logChannelID, redisClient),
+		Messages:     NewMessagesDashboard(session, logChannelID, redisClient),
+		Voice:        NewVoiceDashboard(session, logChannelID, voiceState),
 	}
 }
 

@@ -11,7 +11,7 @@ echo "Building the application..."
 ./scripts/build.sh
 
 echo "Installing the application..."
-sudo ./scripts/install.sh
+./scripts/install.sh
 
 echo "Cleaning up..."
 rm -rf ./bin

@@ -1,63 +1,69 @@
 #!/bin/bash
 
-# This script is intended to be run with sudo.
+set -e
 
-echo "Stopping the service..."
-systemctl stop dex-discord-interface.service
+SERVICE_NAME="dex-discord-interface"
+SERVICE_FILE="$HOME/.config/systemd/user/$SERVICE_NAME.service"
+INSTALL_DIR="$HOME/.local/bin"
+EXECUTABLE_NAME="dex-discord-interface"
+EXECUTABLE_PATH="$INSTALL_DIR/$EXECUTABLE_NAME"
+
+echo "Starting user-level installation..."
+
+# --- Stop existing service ---
+echo "Stopping any running user service..."
+systemctl --user stop "$SERVICE_NAME.service" || true
+
+# --- Create directories ---
+echo "Creating installation directories..."
+mkdir -p "$INSTALL_DIR"
+mkdir -p "$HOME/.config/systemd/user"
 
 # --- Executable ---
-echo "Installing executable to /usr/local/bin..."
-if [ ! -f ./bin/dex-discord-interface ]; then
+echo "Installing executable to $INSTALL_DIR..."
+if [ ! -f ./bin/$EXECUTABLE_NAME ]; then
   echo "Error: executable not found. Please run the build script first."
   exit 1
 fi
-cp ./bin/dex-discord-interface /usr/local/bin/dex-discord-interface
-chown root:root /usr/local/bin/dex-discord-interface
-chmod 755 /usr/local/bin/dex-discord-interface
+cp "./bin/$EXECUTABLE_NAME" "$EXECUTABLE_PATH"
+chmod 755 "$EXECUTABLE_PATH"
 
-# --- Dexter Config ---
-echo "Creating /root/Dexter/config directory..."
-mkdir -p /root/Dexter/config
+# --- Config Check ---
+echo "Checking for configuration file..."
+CONFIG_PATH="$HOME/Dexter/config/discord-interface.json"
+if [ ! -f "$CONFIG_PATH" ]; then
+    echo "Warning: Configuration file not found at $CONFIG_PATH"
+    echo "The service may not start without it. Please run './scripts/config.sh'."
+fi
 
-echo "Copying Dexter config to /root/Dexter/config..."
-SOURCE_USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6)
-
-cp "$SOURCE_USER_HOME/Dexter/config/discord-interface.json" /root/Dexter/config/discord-interface.json
-
-ls -l /root/Dexter/config
-
-chown -R root:root /root/Dexter/config
-
-echo "Configuration files and executable installed."
-
-echo "Creating systemd service file..."
-cat <<EOT >/etc/systemd/system/dex-discord-interface.service
+echo "Creating systemd user service file at $SERVICE_FILE..."
+cat <<EOT >"$SERVICE_FILE"
 [Unit]
-Description=Dex Discord Interface
+Description=Dex Discord Interface (User Service)
 After=network.target
 
 [Service]
-User=root
-Group=root
-WorkingDirectory=/usr/local/bin
-ExecStart=/usr/local/bin/dex-discord-interface
+ExecStart=$EXECUTABLE_PATH
+WorkingDirectory=%h
 Restart=always
+RestartSec=3
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 EOT
 
 # --- Systemd ---
-echo "Reloading systemd, enabling and starting the service..."
-systemctl daemon-reload
-systemctl enable dex-discord-interface.service
-systemctl start dex-discord-interface.service
+echo "Reloading systemd user daemon, enabling and starting the service..."
+systemctl --user daemon-reload
+systemctl --user enable "$SERVICE_NAME.service"
+systemctl --user start "$SERVICE_NAME.service"
 
 # --- Health Check ---
-if systemctl is-active --quiet dex-discord-interface.service; then
-  echo "Dex Discord Interface is running."
+echo "Verifying service status..."
+if systemctl --user is-active --quiet "$SERVICE_NAME.service"; then
+  echo "✅ Dex Discord Interface is running successfully as a user service."
 else
-  echo "Error: Dex Discord Interface failed to start."
-  journalctl -u dex-discord-interface.service
+  echo "❌ Error: Dex Discord Interface failed to start."
+  echo "Run './scripts/logs.sh' to view the logs."
   exit 1
 fi

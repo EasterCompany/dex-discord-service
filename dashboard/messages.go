@@ -1,11 +1,13 @@
 package dashboard
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"strings"
 	"time"
 
+	"github.com/EasterCompany/dex-discord-interface/cache"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -13,29 +15,34 @@ const maxMessages = 100
 
 // MessagesDashboard shows recent Discord messages
 type MessagesDashboard struct {
-	session        *discordgo.Session
-	logChannelID   string
-	cache          *MessageCache
-	recentMessages []string // In-memory store for recent messages
+	session      *discordgo.Session
+	logChannelID string
+	cache        *MessageCache
+	redisClient  *cache.RedisClient
 }
 
 // NewMessagesDashboard creates a new messages dashboard
-func NewMessagesDashboard(session *discordgo.Session, logChannelID string) *MessagesDashboard {
+func NewMessagesDashboard(session *discordgo.Session, logChannelID string, redisClient *cache.RedisClient) *MessagesDashboard {
 	return &MessagesDashboard{
 		session:      session,
 		logChannelID: logChannelID,
 		cache: &MessageCache{
-			ThrottleDuration: 30 * time.Second,
+			ThrottleDuration: 5 * time.Second, // Faster updates for messages
 		},
-		recentMessages: make([]string, 0, maxMessages),
+		redisClient: redisClient,
 	}
 }
 
-// Init creates the messages dashboard message
+// Init creates the messages dashboard message and loads initial data from Redis
 func (d *MessagesDashboard) Init() error {
-	content := "**Messages Dashboard**\n\n_No messages yet_"
-
 	log.Println("[DASHBOARD_INIT] Creating Messages dashboard...")
+
+	// Format with existing messages from Redis
+	content, err := d.formatMessages()
+	if err != nil {
+		log.Printf("Error formatting initial messages: %v", err)
+		content = "**Messages Dashboard**\n\n_Error loading messages_"
+	}
 
 	msg, err := d.session.ChannelMessageSend(d.logChannelID, content)
 	if err != nil {
@@ -52,13 +59,13 @@ func (d *MessagesDashboard) Init() error {
 	return nil
 }
 
-// AddMessage adds a new message to the dashboard's log and triggers an update.
+// AddMessage adds a new message to Redis and triggers a dashboard update.
 func (d *MessagesDashboard) AddMessage(message string) {
-	// TODO: Replace in-memory slice with Redis list (LPUSH/LTRIM)
-	d.recentMessages = append(d.recentMessages, message)
-	if len(d.recentMessages) > maxMessages {
-		// Trim the slice to keep only the last `maxMessages` messages.
-		d.recentMessages = d.recentMessages[len(d.recentMessages)-maxMessages:]
+	ctx := context.Background()
+	err := d.redisClient.AddToList(ctx, cache.MessagesKey, message, maxMessages)
+	if err != nil {
+		log.Printf("Error adding message to Redis: %v", err)
+		return
 	}
 
 	// Trigger a throttled update.
@@ -69,13 +76,19 @@ func (d *MessagesDashboard) AddMessage(message string) {
 
 // Update refreshes the messages dashboard (throttled)
 func (d *MessagesDashboard) Update() error {
-	content := d.formatMessages()
+	content, err := d.formatMessages()
+	if err != nil {
+		return fmt.Errorf("failed to format messages for update: %w", err)
+	}
 	return UpdateThrottled(d.cache, d.session, d.logChannelID, content)
 }
 
 // ForceUpdate bypasses throttle
 func (d *MessagesDashboard) ForceUpdate() error {
-	content := d.formatMessages()
+	content, err := d.formatMessages()
+	if err != nil {
+		return fmt.Errorf("failed to format messages for force update: %w", err)
+	}
 	return ForceUpdateNow(d.cache, d.session, d.logChannelID, content)
 }
 
@@ -84,26 +97,30 @@ func (d *MessagesDashboard) Finalize() error {
 	return nil
 }
 
-// formatMessages generates the display content for the dashboard.
-func (d *MessagesDashboard) formatMessages() string {
-	if len(d.recentMessages) == 0 {
-		return "**Messages Dashboard**\n\n_No messages yet_"
+// formatMessages generates the display content for the dashboard from Redis.
+func (d *MessagesDashboard) formatMessages() (string, error) {
+	messages, err := d.redisClient.GetListRange(context.Background(), cache.MessagesKey, 0, 9)
+	if err != nil {
+		return "", err
+	}
+
+	if len(messages) == 0 {
+		return "**Messages Dashboard**\n\n_No messages yet_", nil
+	}
+
+	// Reverse messages to show newest at the bottom
+	for i, j := 0, len(messages)-1; i < j; i, j = i+1, j-1 {
+		messages[i], messages[j] = messages[j], messages[i]
 	}
 
 	var builder strings.Builder
 	builder.WriteString("**Messages Dashboard**\n```\n")
 
-	// Get the last 10 messages
-	start := 0
-	if len(d.recentMessages) > 10 {
-		start = len(d.recentMessages) - 10
-	}
-
-	for _, msg := range d.recentMessages[start:] {
+	for _, msg := range messages {
 		builder.WriteString(msg)
 		builder.WriteString("\n")
 	}
 
 	builder.WriteString("```")
-	return builder.String()
+	return builder.String(), nil
 }

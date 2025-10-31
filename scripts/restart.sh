@@ -1,3 +1,2 @@
 #!/bin/bash
-
-sudo systemctl restart dex-discord-interface.service
+systemctl --user restart dex-discord-interface.service
