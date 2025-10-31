@@ -115,6 +115,9 @@ func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreat
 	for i := 0; i < maxRetries; i++ {
 		vc, err = s.ChannelVoiceJoin(m.GuildID, userVoiceState, false, false)
 		if err == nil {
+			vc.AddHandler(func(vc *discordgo.VoiceConnection, p *discordgo.VoiceSpeakingUpdate) {
+				h.SpeakingUpdate(vc, p)
+			})
 			break
 		}
 		h.Logger.Error(fmt.Sprintf("Attempt %d to join voice channel failed", i+1), err)
@@ -133,9 +136,6 @@ func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreat
 		return
 	}
 
-	vc.AddHandler(func(vc *discordgo.VoiceConnection, p *discordgo.VoiceSpeakingUpdate) {
-		h.SpeakingUpdate(vc, p)
-	})
 	state.ConnectionChannelID = vc.ChannelID
 	go h.handleVoice(s, vc, state)
 }
