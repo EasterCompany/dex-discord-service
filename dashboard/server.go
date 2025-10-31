@@ -78,53 +78,21 @@ func (d *ServerDashboard) formatBootMessage() string {
 func (d *ServerDashboard) formatServerInfo() string {
 	guild, err := d.session.Guild(d.serverID)
 	if err != nil {
-		return fmt.Sprintf("**Server Dashboard**\n\n❌ **Error:** Failed to fetch server info\n\n_Error: %v_", err)
+		return fmt.Sprintf("**Server Dashboard**\n\n❌ **Status:** Failed to fetch server info\n\n_Error: %v_", err)
 	}
 
-	uptime := time.Since(d.startTime).Round(time.Second)
-
-	// Count channels by type
-	textChannels := 0
-	voiceChannels := 0
-	categories := 0
-	for _, channel := range guild.Channels {
-		switch channel.Type {
-		case discordgo.ChannelTypeGuildText:
-			textChannels++
-		case discordgo.ChannelTypeGuildVoice:
-			voiceChannels++
-		case discordgo.ChannelTypeGuildCategory:
-			categories++
-		}
-	}
-
-	return fmt.Sprintf("**Server Dashboard**\n\n"+
-		"✅ **Status:** Connected\n"+
-		"🕒 **Uptime:** %s\n\n"+
+	return fmt.Sprintf("**Server Dashboard**\n\n✅ **Status:** Connected\n\n"+
 		"**Server:** %s\n"+
 		"**Server ID:** `%s`\n"+
-		"**Owner:** <@%s>\n"+
-		"**Members:** %d\n"+
-		"**Roles:** %d\n\n"+
-		"**Channels:**\n"+
-		"📝 Text: %d\n"+
-		"🔊 Voice: %d\n"+
-		"📁 Categories: %d\n\n"+
+		"**Owner:** <@%s>\n\n"+
 		"_Last updated: %s_",
-		uptime,
 		guild.Name,
 		guild.ID,
 		guild.OwnerID,
-		guild.MemberCount,
-		len(guild.Roles),
-		textChannels,
-		voiceChannels,
-		categories,
 		time.Now().Format("15:04:05"))
 }
 
 // formatShutdownMessage creates the shutdown message
 func (d *ServerDashboard) formatShutdownMessage() string {
-	uptime := time.Since(d.startTime).Round(time.Second)
-	return fmt.Sprintf("**Server Dashboard**\n\n⏹️ **Status:** Offline\n\n**Total Uptime:** %s\n\n_Bot shutting down_", uptime)
+	return "**Server Dashboard**\n\n⏹️ **Status:** Offline\n\n_Bot shutting down_"
 }

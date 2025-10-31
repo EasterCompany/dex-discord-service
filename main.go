@@ -59,7 +59,8 @@ func main() {
 
 		// Setup event handlers
 		s.AddHandler(handlers.MessageCreateHandler(dashboardManager.Messages))
-		log.Println("Message handler registered.")
+		s.AddHandler(handlers.GenericEventHandler(dashboardManager.Events))
+		log.Println("All event handlers registered.")
 	})
 
 	// Open connection
