@@ -33,8 +33,9 @@ func NewLogger(s *discordgo.Session, channelID string) Logger {
 	}
 }
 
-// Post sends a message to the log channel
+// Post sends a message to the log channel and logs to systemd
 func (l *logger) Post(msg string) {
+	log.Printf("[POST] %s\n", msg)
 	if l.session != nil && l.logChannelID != "" {
 		_, _ = l.session.ChannelMessageSend(l.logChannelID, msg)
 	}
@@ -42,6 +43,7 @@ func (l *logger) Post(msg string) {
 
 // PostInitialMessage sends an initial message and returns the message object
 func (l *logger) PostInitialMessage(msg string) (*discordgo.Message, error) {
+	log.Printf("[POST_INITIAL] %s\n", msg)
 	if l.session != nil && l.logChannelID != "" {
 		return l.session.ChannelMessageSend(l.logChannelID, msg)
 	}
@@ -50,6 +52,7 @@ func (l *logger) PostInitialMessage(msg string) (*discordgo.Message, error) {
 
 // UpdateInitialMessage edits the initial message with new content
 func (l *logger) UpdateInitialMessage(messageID, newContent string) {
+	log.Printf("[UPDATE] MessageID: %s | Content: %s\n", messageID, newContent)
 	if l.session != nil && l.logChannelID != "" {
 		_, _ = l.session.ChannelMessageEdit(l.logChannelID, messageID, newContent)
 	}

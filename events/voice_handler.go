@@ -70,7 +70,8 @@ func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreat
 	}
 
 	if userVoiceState == "" {
-		_, _ = s.ChannelMessageSend(m.ChannelID, "You need to be in a voice channel for me to join!")
+		msg := fmt.Sprintf("Cannot join voice channel: user %s is not in a voice channel.", m.Author.Username)
+		h.Logger.Info(msg)
 		return
 	}
 
@@ -78,8 +79,8 @@ func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreat
 	if vc, ok := s.VoiceConnections[m.GuildID]; ok {
 		// If already in the correct channel, do nothing.
 		if vc.ChannelID == userVoiceState {
-			h.Logger.Info(fmt.Sprintf("Bot is already in the correct voice channel %s, doing nothing.", vc.ChannelID))
-			_, _ = s.ChannelMessageSend(m.ChannelID, "I'm already in your voice channel!")
+			msg := fmt.Sprintf("Bot is already in the correct voice channel %s where %s is located.", vc.ChannelID, m.Author.Username)
+			h.Logger.Info(msg)
 			return
 		}
 
@@ -110,8 +111,10 @@ func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreat
 	const maxRetries = 3
 	var vc *discordgo.VoiceConnection
 
-	// Post connection message
-	msg, _ := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Connecting to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
+	// Post connection message to log channel only
+	connectMsg := fmt.Sprintf("Connecting to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID)
+	log.Printf("[DISCORD_POST] %s\n", connectMsg)
+	msg, _ := s.ChannelMessageSend(h.DiscordCfg.LogChannelID, connectMsg)
 	if msg != nil {
 		state.ConnectionMessageID = msg.ID
 		state.ConnectionMessageChannelID = msg.ChannelID
@@ -138,7 +141,9 @@ func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreat
 			// Update status message
 			if msg != nil && i < maxRetries-1 {
 				retrySeconds := int(math.Pow(2, float64(i)))
-				_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect, retrying in %d seconds...", retrySeconds))
+				retryMsg := fmt.Sprintf("Failed to connect, retrying in %d seconds...", retrySeconds)
+				log.Printf("[DISCORD_EDIT] MessageID: %s | Content: %s\n", msg.ID, retryMsg)
+				_, _ = s.ChannelMessageEdit(h.DiscordCfg.LogChannelID, msg.ID, retryMsg)
 				time.Sleep(time.Duration(retrySeconds) * time.Second)
 			}
 			continue
@@ -178,7 +183,9 @@ func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreat
 
 	if err != nil || vc == nil || !vc.Ready {
 		if msg != nil {
-			_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
+			failMsg := fmt.Sprintf("Failed to connect to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID)
+			log.Printf("[DISCORD_EDIT] MessageID: %s | Content: %s\n", msg.ID, failMsg)
+			_, _ = s.ChannelMessageEdit(h.DiscordCfg.LogChannelID, msg.ID, failMsg)
 		}
 		h.disconnectFromVoice(s, m.GuildID)
 		return
@@ -257,6 +264,7 @@ func (h *VoiceHandler) disconnectFromVoice(s *discordgo.Session, guildID string)
 			} else {
 				editContent = fmt.Sprintf("Disconnected after %s.", duration)
 			}
+			log.Printf("[DISCORD_EDIT] MessageID: %s | Content: %s\n", state.ConnectionMessageID, editContent)
 			_, err := s.ChannelMessageEdit(state.ConnectionMessageChannelID, state.ConnectionMessageID, editContent)
 			if err != nil {
 				h.Logger.Error("Failed to update disconnect message", err)
@@ -636,6 +644,7 @@ func (h *VoiceHandler) finalizeChannelMove(s *discordgo.Session, vc *discordgo.V
 		} else {
 			editContent = fmt.Sprintf("**Disconnected** (moved) after %s.", duration)
 		}
+		log.Printf("[DISCORD_EDIT] MessageID: %s | Content: %s\n", oldState.ConnectionMessageID, editContent)
 		_, _ = s.ChannelMessageEdit(oldState.ConnectionMessageChannelID, oldState.ConnectionMessageID, editContent)
 	}
 	oldState.MetaMutex.Unlock()
@@ -662,7 +671,9 @@ func (h *VoiceHandler) finalizeChannelMove(s *discordgo.Session, vc *discordgo.V
 			g, _ = s.State.Guild(guildID)
 		}
 		if g != nil {
-			msg, _ := s.ChannelMessageSend(h.DiscordCfg.LogChannelID, fmt.Sprintf("Connecting to %s (%s) at %s (%s).", newChannel.Name, newChannel.ID, g.Name, g.ID))
+			moveMsg := fmt.Sprintf("Connecting to %s (%s) at %s (%s).", newChannel.Name, newChannel.ID, g.Name, g.ID)
+			log.Printf("[DISCORD_POST] %s\n", moveMsg)
+			msg, _ := s.ChannelMessageSend(h.DiscordCfg.LogChannelID, moveMsg)
 			if msg != nil {
 				newState.ConnectionMessageID = msg.ID
 				newState.ConnectionMessageChannelID = msg.ChannelID
@@ -695,6 +706,7 @@ func (h *VoiceHandler) handleVoice(s *discordgo.Session, vc *discordgo.VoiceConn
 	// Initial message update
 	if state.ConnectionMessageID != "" {
 		msg := h.formatConnectionMessage(s, vc, state)
+		log.Printf("[DISCORD_EDIT] MessageID: %s | Status update (initial)\n", state.ConnectionMessageID)
 		_, _ = s.ChannelMessageEdit(state.ConnectionMessageChannelID, state.ConnectionMessageID, msg)
 	}
 
@@ -721,6 +733,7 @@ func (h *VoiceHandler) handleVoice(s *discordgo.Session, vc *discordgo.VoiceConn
 			// Update the connection status message periodically
 			if state.ConnectionMessageID != "" {
 				msg := h.formatConnectionMessage(s, vc, state)
+				log.Printf("[DISCORD_EDIT] MessageID: %s | Status update (periodic)\n", state.ConnectionMessageID)
 				_, _ = s.ChannelMessageEdit(state.ConnectionMessageChannelID, state.ConnectionMessageID, msg)
 			}
 		}

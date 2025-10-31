@@ -128,3 +128,158 @@ func (h *Handler) ChannelCreate(s *discordgo.Session, c *discordgo.ChannelCreate
 	// This handler is intentionally left empty.
 	// Registering this handler is enough for discordgo to process the event and update the state.
 }
+
+// Dummy event handlers - these ensure all Discord events are captured and state is updated
+// Implement specific logic as needed
+
+func (h *Handler) ChannelUpdate(s *discordgo.Session, c *discordgo.ChannelUpdate) {}
+
+func (h *Handler) ChannelDelete(s *discordgo.Session, c *discordgo.ChannelDelete) {}
+
+func (h *Handler) ChannelPinsUpdate(s *discordgo.Session, c *discordgo.ChannelPinsUpdate) {}
+
+func (h *Handler) ThreadCreate(s *discordgo.Session, t *discordgo.ThreadCreate) {}
+
+func (h *Handler) ThreadUpdate(s *discordgo.Session, t *discordgo.ThreadUpdate) {}
+
+func (h *Handler) ThreadDelete(s *discordgo.Session, t *discordgo.ThreadDelete) {}
+
+func (h *Handler) ThreadListSync(s *discordgo.Session, t *discordgo.ThreadListSync) {}
+
+func (h *Handler) ThreadMemberUpdate(s *discordgo.Session, t *discordgo.ThreadMemberUpdate) {}
+
+func (h *Handler) ThreadMembersUpdate(s *discordgo.Session, t *discordgo.ThreadMembersUpdate) {}
+
+func (h *Handler) GuildCreate(s *discordgo.Session, g *discordgo.GuildCreate) {}
+
+func (h *Handler) GuildUpdate(s *discordgo.Session, g *discordgo.GuildUpdate) {}
+
+func (h *Handler) GuildDelete(s *discordgo.Session, g *discordgo.GuildDelete) {}
+
+func (h *Handler) GuildBanAdd(s *discordgo.Session, g *discordgo.GuildBanAdd) {}
+
+func (h *Handler) GuildBanRemove(s *discordgo.Session, g *discordgo.GuildBanRemove) {}
+
+func (h *Handler) GuildMemberAdd(s *discordgo.Session, m *discordgo.GuildMemberAdd) {}
+
+func (h *Handler) GuildMemberUpdate(s *discordgo.Session, m *discordgo.GuildMemberUpdate) {}
+
+func (h *Handler) GuildMemberRemove(s *discordgo.Session, m *discordgo.GuildMemberRemove) {}
+
+func (h *Handler) GuildRoleCreate(s *discordgo.Session, r *discordgo.GuildRoleCreate) {}
+
+func (h *Handler) GuildRoleUpdate(s *discordgo.Session, r *discordgo.GuildRoleUpdate) {}
+
+func (h *Handler) GuildRoleDelete(s *discordgo.Session, r *discordgo.GuildRoleDelete) {}
+
+func (h *Handler) GuildEmojisUpdate(s *discordgo.Session, e *discordgo.GuildEmojisUpdate) {}
+
+func (h *Handler) GuildStickersUpdate(s *discordgo.Session, e *discordgo.GuildStickersUpdate) {}
+
+func (h *Handler) GuildMembersChunk(s *discordgo.Session, m *discordgo.GuildMembersChunk) {}
+
+func (h *Handler) GuildIntegrationsUpdate(s *discordgo.Session, i *discordgo.GuildIntegrationsUpdate) {
+}
+
+func (h *Handler) StageInstanceEventCreate(s *discordgo.Session, e *discordgo.StageInstanceEventCreate) {
+}
+
+func (h *Handler) StageInstanceEventUpdate(s *discordgo.Session, e *discordgo.StageInstanceEventUpdate) {
+}
+
+func (h *Handler) StageInstanceEventDelete(s *discordgo.Session, e *discordgo.StageInstanceEventDelete) {
+}
+
+func (h *Handler) GuildScheduledEventCreate(s *discordgo.Session, e *discordgo.GuildScheduledEventCreate) {
+}
+
+func (h *Handler) GuildScheduledEventUpdate(s *discordgo.Session, e *discordgo.GuildScheduledEventUpdate) {
+}
+
+func (h *Handler) GuildScheduledEventDelete(s *discordgo.Session, e *discordgo.GuildScheduledEventDelete) {
+}
+
+func (h *Handler) GuildScheduledEventUserAdd(s *discordgo.Session, e *discordgo.GuildScheduledEventUserAdd) {
+}
+
+func (h *Handler) GuildScheduledEventUserRemove(s *discordgo.Session, e *discordgo.GuildScheduledEventUserRemove) {
+}
+
+func (h *Handler) IntegrationCreate(s *discordgo.Session, i *discordgo.IntegrationCreate) {}
+
+func (h *Handler) IntegrationUpdate(s *discordgo.Session, i *discordgo.IntegrationUpdate) {}
+
+func (h *Handler) IntegrationDelete(s *discordgo.Session, i *discordgo.IntegrationDelete) {}
+
+func (h *Handler) MessageUpdate(s *discordgo.Session, m *discordgo.MessageUpdate) {}
+
+func (h *Handler) MessageDelete(s *discordgo.Session, m *discordgo.MessageDelete) {}
+
+func (h *Handler) MessageReactionAdd(s *discordgo.Session, r *discordgo.MessageReactionAdd) {}
+
+func (h *Handler) MessageReactionRemove(s *discordgo.Session, r *discordgo.MessageReactionRemove) {}
+
+func (h *Handler) MessageReactionRemoveAll(s *discordgo.Session, r *discordgo.MessageReactionRemoveAll) {
+}
+
+func (h *Handler) PresenceUpdate(s *discordgo.Session, p *discordgo.PresenceUpdate) {}
+
+func (h *Handler) Resumed(s *discordgo.Session, r *discordgo.Resumed) {}
+
+func (h *Handler) TypingStart(s *discordgo.Session, t *discordgo.TypingStart) {}
+
+func (h *Handler) UserUpdate(s *discordgo.Session, u *discordgo.UserUpdate) {}
+
+func (h *Handler) VoiceServerUpdate(s *discordgo.Session, v *discordgo.VoiceServerUpdate) {}
+
+func (h *Handler) VoiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {}
+
+func (h *Handler) MessageDeleteBulk(s *discordgo.Session, m *discordgo.MessageDeleteBulk) {}
+
+func (h *Handler) WebhooksUpdate(s *discordgo.Session, w *discordgo.WebhooksUpdate) {}
+
+func (h *Handler) InteractionCreate(s *discordgo.Session, i *discordgo.InteractionCreate) {}
+
+func (h *Handler) InviteCreate(s *discordgo.Session, i *discordgo.InviteCreate) {}
+
+func (h *Handler) InviteDelete(s *discordgo.Session, i *discordgo.InviteDelete) {}
+
+func (h *Handler) ApplicationCommandPermissionsUpdate(s *discordgo.Session, a *discordgo.ApplicationCommandPermissionsUpdate) {
+}
+
+func (h *Handler) AutoModerationRuleCreate(s *discordgo.Session, a *discordgo.AutoModerationRuleCreate) {
+}
+
+func (h *Handler) AutoModerationRuleUpdate(s *discordgo.Session, a *discordgo.AutoModerationRuleUpdate) {
+}
+
+func (h *Handler) AutoModerationRuleDelete(s *discordgo.Session, a *discordgo.AutoModerationRuleDelete) {
+}
+
+func (h *Handler) AutoModerationActionExecution(s *discordgo.Session, a *discordgo.AutoModerationActionExecution) {
+}
+
+func (h *Handler) GuildAuditLogEntryCreate(s *discordgo.Session, a *discordgo.GuildAuditLogEntryCreate) {
+}
+
+func (h *Handler) MessagePollVoteAdd(s *discordgo.Session, p *discordgo.MessagePollVoteAdd) {}
+
+func (h *Handler) MessagePollVoteRemove(s *discordgo.Session, p *discordgo.MessagePollVoteRemove) {}
+
+func (h *Handler) EntitlementCreate(s *discordgo.Session, e *discordgo.EntitlementCreate) {}
+
+func (h *Handler) EntitlementUpdate(s *discordgo.Session, e *discordgo.EntitlementUpdate) {}
+
+func (h *Handler) EntitlementDelete(s *discordgo.Session, e *discordgo.EntitlementDelete) {}
+
+func (h *Handler) SubscriptionCreate(s *discordgo.Session, sub *discordgo.SubscriptionCreate) {}
+
+func (h *Handler) SubscriptionUpdate(s *discordgo.Session, sub *discordgo.SubscriptionUpdate) {}
+
+func (h *Handler) SubscriptionDelete(s *discordgo.Session, sub *discordgo.SubscriptionDelete) {}
+
+func (h *Handler) Connect(s *discordgo.Session, c *discordgo.Connect) {}
+
+func (h *Handler) Disconnect(s *discordgo.Session, d *discordgo.Disconnect) {}
+
+func (h *Handler) RateLimit(s *discordgo.Session, r *discordgo.RateLimit) {}

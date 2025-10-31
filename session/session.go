@@ -13,11 +13,28 @@ func NewSession(token string) (*discordgo.Session, error) {
 		return nil, err
 	}
 
-	// Specify the necessary intents.
-	// Servers is for basic server information.
-	// GuildMessages is for receiving messages in channels.
-	// GuildVoiceStates is for tracking who is joining/leaving/speaking in voice channels.
-	s.Identify.Intents = discordgo.IntentGuilds | discordgo.IntentGuildMessages | discordgo.IntentGuildVoiceStates | discordgo.IntentGuildMembers | discordgo.IntentGuildPresences | discordgo.IntentDirectMessages | discordgo.IntentMessageContent
+	// Specify all necessary intents for admin-level access and comprehensive monitoring.
+	// This includes all guild-related events, voice states, messages, reactions, and more.
+	s.Identify.Intents = discordgo.IntentGuilds |
+		discordgo.IntentGuildMembers |
+		discordgo.IntentGuildModeration |
+		discordgo.IntentGuildEmojis |
+		discordgo.IntentGuildIntegrations |
+		discordgo.IntentGuildWebhooks |
+		discordgo.IntentGuildInvites |
+		discordgo.IntentGuildVoiceStates |
+		discordgo.IntentGuildPresences |
+		discordgo.IntentGuildMessages |
+		discordgo.IntentGuildMessageReactions |
+		discordgo.IntentGuildMessageTyping |
+		discordgo.IntentDirectMessages |
+		discordgo.IntentDirectMessageReactions |
+		discordgo.IntentDirectMessageTyping |
+		discordgo.IntentMessageContent |
+		discordgo.IntentGuildScheduledEvents |
+		discordgo.IntentAutoModerationConfiguration |
+		discordgo.IntentAutoModerationExecution |
+		discordgo.IntentGuildMessagePolls
 
 	return s, nil
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 
@@ -39,6 +40,7 @@ streamLoop:
 			return nil, context.Canceled
 		case <-updateTicker.C:
 			if !firstChunk && responseMessage != nil && responseMessage.Content != fullContent.String() {
+				log.Printf("[DISCORD_EDIT] MessageID: %s | LLM streaming update (length: %d)\n", responseMessage.ID, fullContent.Len())
 				_, _ = s.ChannelMessageEdit(responseMessage.ChannelID, responseMessage.ID, fullContent.String())
 				responseMessage.Content = fullContent.String()
 			}
@@ -59,6 +61,7 @@ streamLoop:
 			fullContent.WriteString(streamResp.Message.Content)
 
 			if firstChunk && fullContent.Len() > 0 {
+				log.Printf("[DISCORD_POST] ChannelID: %s | LLM initial response\n", triggeringMessage.ChannelID)
 				responseMessage, err = s.ChannelMessageSend(triggeringMessage.ChannelID, fullContent.String())
 				if err != nil {
 					return nil, fmt.Errorf("failed to send initial message: %w", err)
@@ -74,6 +77,7 @@ streamLoop:
 
 	// Final update to ensure the message is complete
 	if responseMessage != nil && responseMessage.Content != fullContent.String() {
+		log.Printf("[DISCORD_EDIT] MessageID: %s | LLM final update (length: %d)\n", responseMessage.ID, fullContent.Len())
 		_, _ = s.ChannelMessageEdit(responseMessage.ChannelID, responseMessage.ID, fullContent.String())
 	}
 

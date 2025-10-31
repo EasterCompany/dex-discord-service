@@ -2,6 +2,7 @@
 package cleanup
 
 import (
+	stdlog "log"
 	"strings"
 
 	"github.com/EasterCompany/dex-discord-interface/config"
@@ -36,11 +37,13 @@ func ClearChannel(s *discordgo.Session, channelID, ignoreMessageID string, disco
 		return Result{Name: "ClearChannelEmpty", Count: 0}
 	}
 
+	stdlog.Printf("[DISCORD_BULK_DELETE] ChannelID: %s | Count: %d | Cleanup operation\n", channelID, len(messageIDs))
 	err = s.ChannelMessagesBulkDelete(channelID, messageIDs)
 	if err != nil {
 		log.Error("Failed to bulk delete messages, falling back to individual deletion", err)
 		// Fallback for older messages
 		for _, id := range messageIDs {
+			stdlog.Printf("[DISCORD_DELETE] ChannelID: %s | MessageID: %s | Cleanup fallback\n", channelID, id)
 			if err := s.ChannelMessageDelete(channelID, id); err != nil {
 				log.Error("Failed to delete message", err)
 			}
@@ -72,6 +75,7 @@ func CleanStaleMessages(s *discordgo.Session, channelID string, log logger.Logge
 		if msg.Author.ID == s.State.User.ID {
 			if strings.Contains(msg.Content, "[speaking...]") || strings.Contains(msg.Content, "[awaiting transcription]") {
 				newContent := strings.Split(msg.Content, "|")[0] + "| `Status: Interrupted (bot restarted)`"
+				stdlog.Printf("[DISCORD_EDIT] MessageID: %s | Stale message cleanup\n", msg.ID)
 				if _, err := s.ChannelMessageEdit(channelID, msg.ID, newContent); err != nil {
 					log.Error("Failed to edit stale message", err)
 				}
