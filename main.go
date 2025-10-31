@@ -48,7 +48,7 @@ func main() {
 	}
 
 	// Initialize dashboard manager
-	dashboardManager := dashboard.NewManager(session, cfg.LogChannelID)
+	dashboardManager := dashboard.NewManager(session, cfg.LogChannelID, cfg.ServerID)
 
 	// Initialize all dashboards
 	if err := dashboardManager.Init(); err != nil {

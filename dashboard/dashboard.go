@@ -8,8 +8,9 @@ import (
 type Manager struct {
 	session      *discordgo.Session
 	logChannelID string
+	serverID     string
 
-	System   *SystemDashboard
+	Server   *ServerDashboard
 	Logs     *LogsDashboard
 	Events   *EventsDashboard
 	Messages *MessagesDashboard
@@ -17,11 +18,12 @@ type Manager struct {
 }
 
 // NewManager creates a new dashboard manager
-func NewManager(session *discordgo.Session, logChannelID string) *Manager {
+func NewManager(session *discordgo.Session, logChannelID, serverID string) *Manager {
 	return &Manager{
 		session:      session,
 		logChannelID: logChannelID,
-		System:       NewSystemDashboard(session, logChannelID),
+		serverID:     serverID,
+		Server:       NewServerDashboard(session, logChannelID, serverID),
 		Logs:         NewLogsDashboard(session, logChannelID),
 		Events:       NewEventsDashboard(session, logChannelID),
 		Messages:     NewMessagesDashboard(session, logChannelID),
@@ -31,8 +33,8 @@ func NewManager(session *discordgo.Session, logChannelID string) *Manager {
 
 // Init initializes all dashboards
 func (m *Manager) Init() error {
-	// Initialize in order: System -> Logs -> Events -> Messages -> Voice
-	if err := m.System.Init(); err != nil {
+	// Initialize in order: Server -> Logs -> Events -> Messages -> Voice
+	if err := m.Server.Init(); err != nil {
 		return err
 	}
 	if err := m.Logs.Init(); err != nil {
@@ -58,7 +60,7 @@ func (m *Manager) Shutdown() error {
 	_ = m.Messages.Finalize()
 	_ = m.Events.Finalize()
 	_ = m.Logs.Finalize()
-	_ = m.System.Finalize()
+	_ = m.Server.Finalize()
 
 	return nil
 }
