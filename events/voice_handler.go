@@ -55,64 +55,89 @@ func NewVoiceHandler(s *discordgo.Session, logger logger.Logger, stateManager *S
 }
 
 func (h *VoiceHandler) JoinVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
-	h.disconnectFromVoice(s, m.GuildID)
-
 	g, err := s.State.Guild(m.GuildID)
 	if err != nil {
+		h.Logger.Error("Could not get guild from state", err)
 		return
 	}
+
+	userVoiceState := ""
 	for _, vs := range g.VoiceStates {
 		if vs.UserID == m.Author.ID {
-			state := h.StateManager.GetOrStoreGuildState(m.GuildID)
-			if h.DB != nil {
-				if err := h.DB.SaveGuildState(m.GuildID, state); err != nil {
-					h.Logger.Error(fmt.Sprintf("Error saving guild state for guild %s", m.GuildID), err)
-				}
-			}
-			channel, err := s.Channel(vs.ChannelID)
-			if err != nil {
-				return
-			}
-			msg, _ := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Connecting to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
-			if msg != nil {
-				state.ConnectionMessageID = msg.ID
-				state.ConnectionMessageChannelID = msg.ChannelID
-				state.ConnectionStartTime = time.Now()
-			}
-
-			const maxRetries = 3
-			var vc *discordgo.VoiceConnection
-
-			for i := 0; i < maxRetries; i++ {
-				vc, err = s.ChannelVoiceJoin(m.GuildID, vs.ChannelID, false, false)
-				if err == nil {
-					break
-				}
-				h.Logger.Error(fmt.Sprintf("Attempt %d to join voice channel failed", i+1), err)
-				retrySeconds := int(math.Pow(2, float64(i)))
-				if msg != nil {
-					_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect, retrying in %d seconds...", retrySeconds))
-				}
-				time.Sleep(time.Duration(retrySeconds) * time.Second)
-			}
-
-			if err != nil {
-				if msg != nil {
-					_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
-				}
-				h.disconnectFromVoice(s, m.GuildID)
-				return
-			}
-
-			vc.AddHandler(func(vc *discordgo.VoiceConnection, p *discordgo.VoiceSpeakingUpdate) {
-				h.SpeakingUpdate(vc, p)
-			})
-			state.ConnectionChannelID = vc.ChannelID
-			go h.handleVoice(s, vc, state)
-			return
+			userVoiceState = vs.ChannelID
+			break
 		}
 	}
-	_, _ = s.ChannelMessageSend(m.ChannelID, "You need to be in a voice channel for me to join!")
+
+	if userVoiceState == "" {
+		_, _ = s.ChannelMessageSend(m.ChannelID, "You need to be in a voice channel for me to join!")
+		return
+	}
+
+	// Check if bot is already connected to a voice channel in this guild
+	if vc, ok := s.VoiceConnections[m.GuildID]; ok {
+		// If already in the correct channel, do nothing.
+		if vc.ChannelID == userVoiceState {
+			h.Logger.Info(fmt.Sprintf("Bot is already in the correct voice channel %s, doing nothing.", vc.ChannelID))
+			_, _ = s.ChannelMessageSend(m.ChannelID, "I'm already in your voice channel!")
+			return
+		}
+
+		// If in a different channel, disconnect first before moving.
+		h.Logger.Info(fmt.Sprintf("Bot is moving from voice channel %s to %s.", vc.ChannelID, userVoiceState))
+		h.disconnectFromVoice(s, m.GuildID)
+	}
+
+	// At this point, the bot is not in any voice channel in this guild, so we can join.
+	state := h.StateManager.GetOrStoreGuildState(m.GuildID)
+	if h.DB != nil {
+		if err := h.DB.SaveGuildState(m.GuildID, state); err != nil {
+			h.Logger.Error(fmt.Sprintf("Error saving guild state for guild %s", m.GuildID), err)
+		}
+	}
+
+	channel, err := s.Channel(userVoiceState)
+	if err != nil {
+		h.Logger.Error(fmt.Sprintf("Could not get channel %s", userVoiceState), err)
+		return
+	}
+
+	msg, _ := s.ChannelMessageSend(m.ChannelID, fmt.Sprintf("Connecting to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
+	if msg != nil {
+		state.ConnectionMessageID = msg.ID
+		state.ConnectionMessageChannelID = msg.ChannelID
+		state.ConnectionStartTime = time.Now()
+	}
+
+	const maxRetries = 3
+	var vc *discordgo.VoiceConnection
+
+	for i := 0; i < maxRetries; i++ {
+		vc, err = s.ChannelVoiceJoin(m.GuildID, userVoiceState, false, false)
+		if err == nil {
+			break
+		}
+		h.Logger.Error(fmt.Sprintf("Attempt %d to join voice channel failed", i+1), err)
+		retrySeconds := int(math.Pow(2, float64(i)))
+		if msg != nil {
+			_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect, retrying in %d seconds...", retrySeconds))
+		}
+		time.Sleep(time.Duration(retrySeconds) * time.Second)
+	}
+
+	if err != nil {
+		if msg != nil {
+			_, _ = s.ChannelMessageEdit(m.ChannelID, msg.ID, fmt.Sprintf("Failed to connect to %s (%s) at %s (%s).", channel.Name, channel.ID, g.Name, g.ID))
+		}
+		h.disconnectFromVoice(s, m.GuildID)
+		return
+	}
+
+	vc.AddHandler(func(vc *discordgo.VoiceConnection, p *discordgo.VoiceSpeakingUpdate) {
+		h.SpeakingUpdate(vc, p)
+	})
+	state.ConnectionChannelID = vc.ChannelID
+	go h.handleVoice(s, vc, state)
 }
 
 func (h *VoiceHandler) LeaveVoice(s *discordgo.Session, m *discordgo.MessageCreate) {
