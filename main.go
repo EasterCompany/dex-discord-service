@@ -55,6 +55,11 @@ func main() {
 		log.Fatalf("Failed to initialize dashboards: %v", err)
 	}
 
+	// Force initial update to populate server info immediately
+	if err := dashboardManager.Server.ForceUpdate(); err != nil {
+		log.Printf("Warning: Failed to update server dashboard: %v", err)
+	}
+
 	fmt.Println("Dashboards initialized!")
 
 	// TODO: Initialize Redis cache
