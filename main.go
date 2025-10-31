@@ -8,6 +8,8 @@ import (
 	"syscall"
 
 	"github.com/EasterCompany/dex-discord-interface/config"
+	"github.com/EasterCompany/dex-discord-interface/dashboard"
+	"github.com/bwmarrin/discordgo"
 )
 
 func main() {
@@ -18,14 +20,38 @@ func main() {
 	}
 
 	fmt.Printf("Loaded config for server: %s\n", cfg.ServerID)
-	fmt.Printf("Log channel: %s\n", cfg.LogChannelID)
-	fmt.Printf("Redis: %s (db: %d)\n", cfg.RedisAddr, cfg.RedisDB)
 
-	// TODO: Initialize Discord client
+	// Create Discord session
+	session, err := discordgo.New("Bot " + cfg.DiscordToken)
+	if err != nil {
+		log.Fatalf("Failed to create Discord session: %v", err)
+	}
+
+	// Set intents
+	session.Identify.Intents = discordgo.IntentsAll
+
+	// Open connection
+	if err := session.Open(); err != nil {
+		log.Fatalf("Failed to open Discord connection: %v", err)
+	}
+	defer session.Close()
+
+	fmt.Println("Connected to Discord!")
+
+	// Initialize dashboard manager
+	dashboardManager := dashboard.NewManager(session, cfg.LogChannelID)
+
+	// Initialize all dashboards
+	if err := dashboardManager.Init(); err != nil {
+		log.Fatalf("Failed to initialize dashboards: %v", err)
+	}
+
+	fmt.Println("Dashboards initialized!")
+
 	// TODO: Initialize Redis cache
-	// TODO: Initialize dashboards
+	// TODO: Setup event handlers
 
-	fmt.Println("Dexter Discord Interface starting...")
+	fmt.Println("Dexter Discord Interface running...")
 
 	// Wait for interrupt signal
 	stop := make(chan os.Signal, 1)
@@ -33,4 +59,11 @@ func main() {
 	<-stop
 
 	fmt.Println("Shutting down...")
+
+	// Cleanup dashboards
+	if err := dashboardManager.Shutdown(); err != nil {
+		log.Printf("Error during dashboard shutdown: %v", err)
+	}
+
+	fmt.Println("Shutdown complete.")
 }
