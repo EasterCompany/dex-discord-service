@@ -6,11 +6,15 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
-	"github.com/EasterCompany/dex-discord-interface/cache"
-	"github.com/EasterCompany/dex-discord-interface/config"
-	"github.com/EasterCompany/dex-discord-interface/dashboard"
-	"github.com/EasterCompany/dex-discord-interface/handlers"
+	"github.com/EasterCompany/dex-discord-service/cache"
+	"github.com/EasterCompany/dex-discord-service/commands"
+	"github.com/EasterCompany/dex-discord-service/config"
+	contextpkg "github.com/EasterCompany/dex-discord-service/context"
+	"github.com/EasterCompany/dex-discord-service/dashboard"
+	"github.com/EasterCompany/dex-discord-service/handlers"
+	"github.com/EasterCompany/dex-discord-service/services"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -19,9 +23,16 @@ var (
 	voiceManager     *handlers.VoiceConnectionManager
 	healthMonitor    *handlers.HealthMonitor
 	statusManager    *handlers.StatusManager
+	snapshotBuilder  *contextpkg.SnapshotBuilder
+	healthChecker    *services.HealthChecker
+	statusServer     *services.StatusServer
+	commandHandler   *commands.Handler
+	startTime        time.Time
 )
 
 func main() {
+	startTime = time.Now()
+
 	// Load configuration
 	cfg, err := config.Load()
 	if err != nil {
@@ -46,6 +57,25 @@ func main() {
 		log.Fatalf("Failed to clear Redis cache: %v", err)
 	}
 	log.Println("Redis cache cleared!")
+
+	// Initialize service health checker
+	healthChecker = services.NewHealthChecker(10 * time.Second) // Check every 10 seconds
+
+	// Register external services from config with /status endpoints
+	for serviceName := range cfg.Services {
+		statusURL := cfg.GetServiceStatusURL(serviceName)
+		healthChecker.RegisterService(serviceName, statusURL)
+	}
+
+	// Start health checker
+	healthChecker.Start()
+	defer healthChecker.Stop()
+
+	// Initialize status server
+	statusServer = services.NewStatusServer(cfg.ServicePort, "1.0.0", healthChecker)
+	if err := statusServer.Start(); err != nil {
+		log.Fatalf("Failed to start status server: %v", err)
+	}
 
 	// Set up custom log writer to send logs to Redis
 	// logWriter := cache.NewLogWriter(redisClient)
@@ -82,12 +112,15 @@ func main() {
 		}
 
 		// Initialize dashboard manager
-		dashboardManager = dashboard.NewManager(s, cfg.LogChannelID, cfg.ServerID, redisClient)
+		dashboardManager = dashboard.NewManager(s, cfg.LogChannelID, cfg.ServerID, redisClient, cfg)
 
 		// Initialize all dashboards
 		if err := dashboardManager.Init(); err != nil {
 			log.Fatalf("Failed to initialize dashboards: %v", err)
 		}
+
+		// Wire health checker to server dashboard
+		dashboardManager.Server.SetHealthChecker(healthChecker)
 
 		// Force initial update to populate server info immediately
 		if err := dashboardManager.Server.ForceUpdate(); err != nil {
@@ -95,6 +128,13 @@ func main() {
 		}
 
 		log.Println("Dashboards initialized!")
+
+		// Send startup notification to draw attention to admin channel
+		if _, notifErr := s.ChannelMessageSend(cfg.LogChannelID, "🤖 **Dexter Discord Service** is now online!"); notifErr != nil {
+			log.Printf("Warning: Failed to send startup notification: %v", notifErr)
+		} else {
+			log.Println("Startup notification sent to admin channel!")
+		}
 
 		// Initialize voice connection manager
 		voiceManager = handlers.NewVoiceConnectionManager(
@@ -108,8 +148,6 @@ func main() {
 		// Initialize health monitor
 		healthMonitor = handlers.NewHealthMonitor(
 			cfg.ServerID,
-			cfg.DefaultChannelID,
-			voiceManager,
 			statusManager,
 			dashboardManager.Logs,
 			dashboardManager.Events,
@@ -124,9 +162,29 @@ func main() {
 		healthMonitor.Start()
 		log.Println("Health monitor started!")
 
+		// Initialize context snapshot builder
+		snapshotBuilder = contextpkg.NewSnapshotBuilder(
+			s,
+			dashboardManager,
+			redisClient,
+			cfg,
+			startTime,
+		)
+		log.Println("Context snapshot builder initialized!")
+
+		// Initialize command handler
+		commandHandler = commands.NewHandler(s, cfg, dashboardManager, redisClient)
+		log.Println("Command handler initialized!")
+
 		// Setup event handlers
-		s.AddHandler(handlers.MessageCreateHandler(dashboardManager.Messages, statusManager))
+		s.AddHandler(handlers.MessageCreateHandler(dashboardManager.Messages, statusManager, snapshotBuilder))
 		s.AddHandler(handlers.GenericEventHandler(dashboardManager.Events, dashboardManager.Voice, dashboardManager.VoiceState))
+
+		// Setup command handler
+		s.AddHandler(func(s *discordgo.Session, m *discordgo.MessageCreate) {
+			commandHandler.HandleCommand(m)
+		})
+
 		log.Println("All event handlers registered.")
 	})
 

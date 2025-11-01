@@ -2,14 +2,20 @@ package handlers
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
-	"github.com/EasterCompany/dex-discord-interface/dashboard"
+	contextpkg "github.com/EasterCompany/dex-discord-service/context"
+	"github.com/EasterCompany/dex-discord-service/dashboard"
 	"github.com/bwmarrin/discordgo"
 )
 
 // MessageCreateHandler handles new messages and updates the dashboard.
-func MessageCreateHandler(d *dashboard.MessagesDashboard, sm *StatusManager) func(s *discordgo.Session, m *discordgo.MessageCreate) {
+func MessageCreateHandler(
+	d *dashboard.MessagesDashboard,
+	sm *StatusManager,
+	sb *contextpkg.SnapshotBuilder,
+) func(s *discordgo.Session, m *discordgo.MessageCreate) {
 	return func(s *discordgo.Session, m *discordgo.MessageCreate) {
 		// Ignore messages from the bot itself
 		if m.Author.ID == s.State.User.ID {
@@ -24,6 +30,25 @@ func MessageCreateHandler(d *dashboard.MessagesDashboard, sm *StatusManager) fun
 				strings.Contains(lowerContent, "hey dexter") ||
 				strings.Contains(lowerContent, "wake up") {
 				sm.SetIdle() // Wake up to idle
+
+				// CAPTURE CONTEXT SNAPSHOT when triggered
+				snapshot, err := sb.CaptureSnapshot(
+					m.Author.Username,
+					m.ChannelID,
+					m.Content,
+					sm.GetStatus(),
+				)
+				if err != nil {
+					log.Printf("Error capturing context snapshot: %v", err)
+				} else {
+					// Format for LLM and log it (for now, we'll just log it)
+					// When we integrate with LLM service, this is what we send
+					contextStr := snapshot.FormatForLLM()
+					log.Printf("\n=== CONTEXT SNAPSHOT CAPTURED ===\n%s\n", contextStr)
+
+					// TODO: Send contextStr to LLM service for processing
+					// For now, we're just capturing and logging the context
+				}
 			} else {
 				// Still sleeping, don't process message
 				return

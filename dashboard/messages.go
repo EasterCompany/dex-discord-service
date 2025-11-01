@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/EasterCompany/dex-discord-interface/cache"
+	"github.com/EasterCompany/dex-discord-service/cache"
 	"github.com/bwmarrin/discordgo"
 )
 

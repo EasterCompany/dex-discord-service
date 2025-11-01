@@ -2,7 +2,7 @@
 
 set -e
 
-SERVICE_NAME="dex-discord-interface"
+SERVICE_NAME="dex-discord-service"
 SERVICE_FILE="$HOME/.config/systemd/user/$SERVICE_NAME.service"
 EXECUTABLE_PATH="$HOME/.local/bin/$SERVICE_NAME"
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/EasterCompany/dex-discord-interface/config"
+	"github.com/EasterCompany/dex-discord-service/config"
 	"github.com/go-redis/redis/v8"
 )
 

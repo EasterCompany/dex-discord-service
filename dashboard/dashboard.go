@@ -1,7 +1,8 @@
 package dashboard
 
 import (
-	"github.com/EasterCompany/dex-discord-interface/cache"
+	"github.com/EasterCompany/dex-discord-service/cache"
+	"github.com/EasterCompany/dex-discord-service/config"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -14,6 +15,7 @@ type Manager struct {
 	VoiceState   *VoiceState
 
 	Server   *ServerDashboard
+	Persona  *PersonaDashboard
 	Logs     *LogsDashboard
 	Events   *EventsDashboard
 	Messages *MessagesDashboard
@@ -21,7 +23,7 @@ type Manager struct {
 }
 
 // NewManager creates a new dashboard manager
-func NewManager(session *discordgo.Session, logChannelID, serverID string, redisClient *cache.RedisClient) *Manager {
+func NewManager(session *discordgo.Session, logChannelID, serverID string, redisClient *cache.RedisClient, cfg *config.Config) *Manager {
 	voiceState := NewVoiceState()
 	return &Manager{
 		session:      session,
@@ -30,6 +32,7 @@ func NewManager(session *discordgo.Session, logChannelID, serverID string, redis
 		redisClient:  redisClient,
 		VoiceState:   voiceState,
 		Server:       NewServerDashboard(session, logChannelID, serverID),
+		Persona:      NewPersonaDashboard(session, logChannelID, cfg),
 		Logs:         NewLogsDashboard(session, logChannelID, redisClient),
 		Events:       NewEventsDashboard(session, logChannelID, redisClient),
 		Messages:     NewMessagesDashboard(session, logChannelID, redisClient),
@@ -39,8 +42,11 @@ func NewManager(session *discordgo.Session, logChannelID, serverID string, redis
 
 // Init initializes all dashboards
 func (m *Manager) Init() error {
-	// Initialize in order: Server -> Logs -> Events -> Messages -> Voice
+	// Initialize in order: Server -> Persona -> Logs -> Events -> Messages -> Voice
 	if err := m.Server.Init(); err != nil {
+		return err
+	}
+	if err := m.Persona.Init(); err != nil {
 		return err
 	}
 	if err := m.Logs.Init(); err != nil {
@@ -66,6 +72,7 @@ func (m *Manager) Shutdown() error {
 	_ = m.Messages.Finalize()
 	_ = m.Events.Finalize()
 	_ = m.Logs.Finalize()
+	_ = m.Persona.Finalize()
 	_ = m.Server.Finalize()
 
 	return nil

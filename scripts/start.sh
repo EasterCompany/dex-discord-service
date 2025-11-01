@@ -1,2 +1,2 @@
 #!/bin/bash
-systemctl --user start dex-discord-interface.service
+systemctl --user start dex-discord-service.service

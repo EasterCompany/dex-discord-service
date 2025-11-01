@@ -1,2 +1,2 @@
 #!/bin/bash
-systemctl --user stop dex-discord-interface.service
+systemctl --user stop dex-discord-service.service

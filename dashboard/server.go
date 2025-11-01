@@ -6,16 +6,18 @@ import (
 	"strings"
 	"time"
 
+	"github.com/EasterCompany/dex-discord-service/services"
 	"github.com/bwmarrin/discordgo"
 )
 
 // ServerDashboard shows Discord server/guild information
 type ServerDashboard struct {
-	session      *discordgo.Session
-	logChannelID string
-	serverID     string
-	cache        *MessageCache
-	startTime    time.Time
+	session       *discordgo.Session
+	logChannelID  string
+	serverID      string
+	cache         *MessageCache
+	startTime     time.Time
+	healthChecker *services.HealthChecker
 }
 
 // NewServerDashboard creates a new server dashboard
@@ -98,20 +100,73 @@ func (d *ServerDashboard) formatServerInfo() string {
 		roleNames = append(roleNames, role.Name)
 	}
 
-	return fmt.Sprintf("**Server:** %s\n"+
-		"**Server ID:** `%s`\n"+
-		"**Owner:** <@%s> (%s) | %s\n"+
-		"**Roles:** %s\n\n",
-		guild.Name,
-		guild.ID,
-		guild.OwnerID,
-		owner.User.Username,
-		owner.Nick,
-		strings.Join(roleNames, ", "),
-	)
+	var builder strings.Builder
+
+	// Server info section
+	builder.WriteString(fmt.Sprintf("**Server:** %s\n", guild.Name))
+	builder.WriteString(fmt.Sprintf("**Server ID:** `%s`\n", guild.ID))
+
+	// Owner info in single line
+	ownerInfo := fmt.Sprintf("<@%s> (%s)", guild.OwnerID, owner.User.Username)
+	if owner.Nick != "" {
+		ownerInfo += fmt.Sprintf(" | %s", owner.Nick)
+	}
+	if len(roleNames) > 0 {
+		ownerInfo += fmt.Sprintf(" | %s", strings.Join(roleNames, ", "))
+	}
+	builder.WriteString(fmt.Sprintf("**Owner:** %s\n\n", ownerInfo))
+
+	// Dex-Net section
+	if d.healthChecker != nil {
+		builder.WriteString("**🏗️ Dex-Net**\n")
+		builder.WriteString("```\n")
+
+		allServices := d.healthChecker.GetAllServices()
+
+		// Always show discord-service first (this service)
+		builder.WriteString(fmt.Sprintf("%-25s %s %s\n",
+			"discord-service",
+			services.GetStatusEmoji("operational"),
+			"127.0.0.1:8200",
+		))
+
+		// Show other services
+		for name, status := range allServices {
+			emoji := services.GetStatusEmoji(status.Status)
+			endpoint := strings.TrimPrefix(status.Endpoint, "http://")
+
+			// Display service with status
+			line := fmt.Sprintf("%-25s %s %s",
+				name,
+				emoji,
+				endpoint,
+			)
+
+			// Add response time if online
+			if status.Status == "operational" || status.Status == "degraded" {
+				line += fmt.Sprintf(" (%dms)", status.ResponseTime)
+			}
+
+			builder.WriteString(line + "\n")
+		}
+
+		builder.WriteString("```\n")
+	}
+
+	return builder.String()
 }
 
 // formatShutdownMessage creates the shutdown message
 func (d *ServerDashboard) formatShutdownMessage() string {
 	return "**Server Dashboard**\n\n_Bot shutting down_"
+}
+
+// GetServerID returns the server ID for context building
+func (d *ServerDashboard) GetServerID() string {
+	return d.serverID
+}
+
+// SetHealthChecker sets the health checker for service status display
+func (d *ServerDashboard) SetHealthChecker(hc *services.HealthChecker) {
+	d.healthChecker = hc
 }

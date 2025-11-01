@@ -1,2 +1,2 @@
 #!/bin/bash
-journalctl --user-unit dex-discord-interface.service -f
+journalctl --user-unit dex-discord-service.service -f

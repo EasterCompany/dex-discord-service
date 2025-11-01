@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"time"
 
-	"github.com/EasterCompany/dex-discord-interface/dashboard"
+	"github.com/EasterCompany/dex-discord-service/dashboard"
 	"github.com/bwmarrin/discordgo"
 )
 
