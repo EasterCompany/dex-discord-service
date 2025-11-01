@@ -11,10 +11,25 @@ import (
 
 // VoiceDashboard shows voice connection status
 type VoiceDashboard struct {
-	session      *discordgo.Session
-	logChannelID string
-	cache        *MessageCache
-	voiceState   *VoiceState
+	session       *discordgo.Session
+	logChannelID  string
+	cache         *MessageCache
+	voiceState    *VoiceState
+	speakingUsers map[string]bool // UserID -> isSpeaking
+
+	// Audio statistics
+	audioStats *AudioStatistics
+}
+
+// AudioStatistics tracks audio-related statistics
+type AudioStatistics struct {
+	TotalPackets   int64
+	TotalBytes     int64
+	ActiveSpeakers int
+	LastPacket     time.Time
+	SessionStart   time.Time
+	BotConnected   bool
+	BotChannelName string
 }
 
 // NewVoiceDashboard creates a new voice dashboard
@@ -25,7 +40,11 @@ func NewVoiceDashboard(session *discordgo.Session, logChannelID string, voiceSta
 		cache: &MessageCache{
 			ThrottleDuration: 5 * time.Second, // Faster updates for voice state
 		},
-		voiceState: voiceState,
+		voiceState:    voiceState,
+		speakingUsers: make(map[string]bool),
+		audioStats: &AudioStatistics{
+			SessionStart: time.Now(),
+		},
 	}
 }
 
@@ -67,29 +86,80 @@ func (d *VoiceDashboard) Finalize() error {
 	return ForceUpdateNow(d.cache, d.session, d.logChannelID, content)
 }
 
+// SetUserSpeaking updates the speaking status of a user
+func (d *VoiceDashboard) SetUserSpeaking(userID string, isSpeaking bool) {
+	d.speakingUsers[userID] = isSpeaking
+}
+
+// UpdateAudioStats updates the audio statistics
+func (d *VoiceDashboard) UpdateAudioStats(packets, bytes int64, activeSpeakers int, lastPacket time.Time) {
+	d.audioStats.TotalPackets = packets
+	d.audioStats.TotalBytes = bytes
+	d.audioStats.ActiveSpeakers = activeSpeakers
+	d.audioStats.LastPacket = lastPacket
+}
+
+// SetBotConnection updates the bot's voice connection status
+func (d *VoiceDashboard) SetBotConnection(connected bool, channelName string) {
+	d.audioStats.BotConnected = connected
+	d.audioStats.BotChannelName = channelName
+	if connected {
+		d.audioStats.SessionStart = time.Now()
+	}
+}
+
 // formatVoiceState generates the display content for the dashboard.
 func (d *VoiceDashboard) formatVoiceState() string {
 	channels := d.voiceState.GetChannels()
 
-	if len(channels) == 0 {
-		return "**Voice Dashboard**\n\n❌ **Status:** No active voice channels"
-	}
-
 	var builder strings.Builder
 	builder.WriteString("**Voice Dashboard**\n\n")
 
-	for channelID, users := range channels {
-		channel, err := d.session.State.Channel(channelID)
-		channelName := channelID
-		if err == nil {
-			channelName = channel.Name
-		}
-
-		builder.WriteString(fmt.Sprintf("🔊 **%s**\n", channelName))
-		for _, username := range users {
-			builder.WriteString(fmt.Sprintf(" - @%s\n", username))
-		}
+	// Bot connection status
+	if d.audioStats.BotConnected {
+		builder.WriteString(fmt.Sprintf("🤖 **Bot Connected:** #%s\n", d.audioStats.BotChannelName))
+		sessionDuration := time.Since(d.audioStats.SessionStart).Round(time.Second)
+		builder.WriteString(fmt.Sprintf("⏱️ **Session Duration:** %s\n", sessionDuration))
 		builder.WriteString("\n")
+
+		// Audio statistics
+		if d.audioStats.TotalPackets > 0 {
+			builder.WriteString("**Audio Statistics:**\n")
+			builder.WriteString(fmt.Sprintf(" - Total Packets: %d\n", d.audioStats.TotalPackets))
+			builder.WriteString(fmt.Sprintf(" - Total Bytes: %d (%.2f MB)\n", d.audioStats.TotalBytes, float64(d.audioStats.TotalBytes)/(1024*1024)))
+			if !d.audioStats.LastPacket.IsZero() {
+				timeSince := time.Since(d.audioStats.LastPacket).Round(time.Millisecond)
+				builder.WriteString(fmt.Sprintf(" - Last Packet: %s ago\n", timeSince))
+			}
+			builder.WriteString(fmt.Sprintf(" - Active Speakers: %d\n", d.audioStats.ActiveSpeakers))
+			builder.WriteString("\n")
+		}
+	}
+
+	// Voice channel status
+	if len(channels) == 0 {
+		if !d.audioStats.BotConnected {
+			builder.WriteString("❌ **Status:** No active voice channels")
+		}
+	} else {
+		builder.WriteString("**Active Voice Channels:**\n\n")
+		for channelID, users := range channels {
+			channel, err := d.session.State.Channel(channelID)
+			channelName := channelID
+			if err == nil {
+				channelName = channel.Name
+			}
+
+			builder.WriteString(fmt.Sprintf("🔊 **%s** (%d users)\n", channelName, len(users)))
+			for userID, username := range users {
+				indicator := "   "
+				if d.speakingUsers[userID] {
+					indicator = "🎙️"
+				}
+				builder.WriteString(fmt.Sprintf(" %s %s\n", indicator, username))
+			}
+			builder.WriteString("\n")
+		}
 	}
 
 	return builder.String()

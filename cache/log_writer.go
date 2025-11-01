@@ -2,8 +2,13 @@ package cache
 
 import (
 	"context"
+
 	"fmt"
+
 	"log"
+
+	"strings"
+
 	"time"
 )
 
@@ -26,7 +31,8 @@ func NewLogWriter(client *RedisClient) *LogWriter {
 
 // Write implements the io.Writer interface.
 func (lw *LogWriter) Write(p []byte) (n int, err error) {
-	logEntry := fmt.Sprintf("[%s] %s", time.Now().Format("15:04:05"), string(p))
+	// The input from the log package includes a newline, which we trim.
+	logEntry := strings.TrimRight(string(p), "\n")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

@@ -12,6 +12,7 @@ import (
 )
 
 const maxMessages = 100
+const maxMessagesDisplay = 5
 
 // MessagesDashboard shows recent Discord messages
 type MessagesDashboard struct {
@@ -99,7 +100,7 @@ func (d *MessagesDashboard) Finalize() error {
 
 // formatMessages generates the display content for the dashboard from Redis.
 func (d *MessagesDashboard) formatMessages() (string, error) {
-	messages, err := d.redisClient.GetListRange(context.Background(), cache.MessagesKey, 0, 9)
+	messages, err := d.redisClient.GetListRange(context.Background(), cache.MessagesKey, 0, maxMessagesDisplay-1)
 	if err != nil {
 		return "", err
 	}

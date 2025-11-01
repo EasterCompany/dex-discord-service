@@ -9,12 +9,13 @@ import (
 
 // Config holds all application configuration
 type Config struct {
-	DiscordToken  string `json:"discord_token"`
-	ServerID      string `json:"server_id"`
-	LogChannelID  string `json:"log_channel_id"`
-	RedisAddr     string `json:"redis_addr"`
-	RedisPassword string `json:"redis_password"`
-	RedisDB       int    `json:"redis_db"`
+	DiscordToken     string `json:"discord_token"`
+	ServerID         string `json:"server_id"`
+	LogChannelID     string `json:"log_channel_id"`
+	DefaultChannelID string `json:"default_channel_id"` // Voice channel to auto-join
+	RedisAddr        string `json:"redis_addr"`
+	RedisPassword    string `json:"redis_password"`
+	RedisDB          int    `json:"redis_db"`
 }
 
 // Load reads the configuration from ~/Dexter/config/discord-interface.json

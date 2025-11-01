@@ -12,6 +12,7 @@ import (
 )
 
 const maxEvents = 100
+const maxEventsDisplay = 5
 
 // EventsDashboard shows recent Discord events
 type EventsDashboard struct {
@@ -104,7 +105,7 @@ func (d *EventsDashboard) Finalize() error {
 
 // formatEvents generates the display content for the dashboard from Redis.
 func (d *EventsDashboard) formatEvents() (string, error) {
-	events, err := d.redisClient.GetListRange(context.Background(), cache.EventsKey, 0, 14)
+	events, err := d.redisClient.GetListRange(context.Background(), cache.EventsKey, 0, maxEventsDisplay-1)
 	if err != nil {
 		return "", err
 	}

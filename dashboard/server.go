@@ -3,6 +3,7 @@ package dashboard
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -71,7 +72,7 @@ func (d *ServerDashboard) Finalize() error {
 
 // formatBootMessage creates the initial boot message
 func (d *ServerDashboard) formatBootMessage() string {
-	return "**Server Dashboard**\n\n🔄 **Status:** Connecting...\n\n_Loading server information_"
+	return "**Server Dashboard**\n\n_Loading server information_"
 }
 
 // formatServerInfo creates the server information message
@@ -81,18 +82,36 @@ func (d *ServerDashboard) formatServerInfo() string {
 		return fmt.Sprintf("**Server Dashboard**\n\n❌ **Status:** Failed to fetch server info\n\n_Error: %v_", err)
 	}
 
-	return fmt.Sprintf("**Server Dashboard**\n\n✅ **Status:** Connected\n\n"+
-		"**Server:** %s\n"+
+	owner, err := d.session.GuildMember(d.serverID, guild.OwnerID)
+	if err != nil {
+		return fmt.Sprintf("**Server Dashboard**\n\n❌ **Status:** Failed to fetch owner info\n\n_Error: %v_", err)
+	}
+
+	// Get role names
+	var roleNames []string
+	for _, roleID := range owner.Roles {
+		role, err := d.session.State.Role(d.serverID, roleID)
+		if err != nil {
+			log.Printf("Failed to get role %s: %v", roleID, err)
+			continue
+		}
+		roleNames = append(roleNames, role.Name)
+	}
+
+	return fmt.Sprintf("**Server:** %s\n"+
 		"**Server ID:** `%s`\n"+
-		"**Owner:** <@%s>\n\n"+
-		"_Last updated: %s_",
+		"**Owner:** <@%s> (%s) | %s\n"+
+		"**Roles:** %s\n\n",
 		guild.Name,
 		guild.ID,
 		guild.OwnerID,
-		time.Now().Format("15:04:05"))
+		owner.User.Username,
+		owner.Nick,
+		strings.Join(roleNames, ", "),
+	)
 }
 
 // formatShutdownMessage creates the shutdown message
 func (d *ServerDashboard) formatShutdownMessage() string {
-	return "**Server Dashboard**\n\n⏹️ **Status:** Offline\n\n_Bot shutting down_"
+	return "**Server Dashboard**\n\n_Bot shutting down_"
 }

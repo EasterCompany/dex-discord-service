@@ -11,7 +11,7 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-const maxLogsDisplay = 20 // Max number of log entries to display on dashboard
+const maxLogsDisplay = 5 // Max number of log entries to display on dashboard
 
 // LogsDashboard shows recent logs and errors
 type LogsDashboard struct {
@@ -27,7 +27,7 @@ func NewLogsDashboard(session *discordgo.Session, logChannelID string, redisClie
 		session:      session,
 		logChannelID: logChannelID,
 		cache: &MessageCache{
-			ThrottleDuration: 5 * time.Second, // Faster updates for logs
+			ThrottleDuration: 10 * time.Second, // Logs update every 10 seconds
 		},
 		redisClient: redisClient,
 	}
@@ -79,6 +79,21 @@ func (d *LogsDashboard) ForceUpdate() error {
 // Finalize performs final update
 func (d *LogsDashboard) Finalize() error {
 	return nil
+}
+
+// AddLog adds a new log entry to Redis and triggers a dashboard update.
+func (d *LogsDashboard) AddLog(logEntry string) {
+	ctx := context.Background()
+
+	// Add to list for dashboard display
+	err := d.redisClient.AddToList(ctx, cache.LogsKey, logEntry, maxLogsDisplay)
+	if err != nil {
+		log.Printf("Error adding log to Redis list: %v", err)
+	}
+
+	if err := d.Update(); err != nil {
+		log.Printf("Error updating logs dashboard: %v", err)
+	}
 }
 
 // formatLogs generates the display content for the dashboard from Redis.

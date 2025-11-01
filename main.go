@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
 	"os/signal"
@@ -13,7 +14,12 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
-var dashboardManager *dashboard.Manager
+var (
+	dashboardManager *dashboard.Manager
+	voiceManager     *handlers.VoiceConnectionManager
+	healthMonitor    *handlers.HealthMonitor
+	statusManager    *handlers.StatusManager
+)
 
 func main() {
 	// Load configuration
@@ -34,6 +40,12 @@ func main() {
 		}
 	}()
 	log.Println("Connected to Redis!")
+
+	// Clear Redis cache on boot
+	if err := redisClient.ClearCache(context.Background()); err != nil {
+		log.Fatalf("Failed to clear Redis cache: %v", err)
+	}
+	log.Println("Redis cache cleared!")
 
 	// Set up custom log writer to send logs to Redis
 	// logWriter := cache.NewLogWriter(redisClient)
@@ -60,6 +72,10 @@ func main() {
 	session.AddHandler(func(s *discordgo.Session, r *discordgo.Ready) {
 		log.Println("Discord session is ready.")
 
+		// Initialize status manager and set initial status
+		statusManager = handlers.NewStatusManager(s)
+		statusManager.SetSleeping()
+
 		// Clean log channel before creating new dashboards
 		if err := dashboard.CleanLogChannel(s, cfg.LogChannelID); err != nil {
 			log.Printf("Warning: Failed to clean log channel: %v", err)
@@ -80,8 +96,36 @@ func main() {
 
 		log.Println("Dashboards initialized!")
 
+		// Initialize voice connection manager
+		voiceManager = handlers.NewVoiceConnectionManager(
+			s,
+			dashboardManager.Voice,
+			dashboardManager.Events,
+			dashboardManager.Logs,
+		)
+		log.Println("Voice connection manager initialized!")
+
+		// Initialize health monitor
+		healthMonitor = handlers.NewHealthMonitor(
+			cfg.ServerID,
+			cfg.DefaultChannelID,
+			voiceManager,
+			statusManager,
+			dashboardManager.Logs,
+			dashboardManager.Events,
+		)
+
+		// Mark systems as ready
+		healthMonitor.SetRedisReady(true)
+		healthMonitor.SetDashboardsReady(true)
+		healthMonitor.SetDiscordReady(true)
+
+		// Start health monitoring
+		healthMonitor.Start()
+		log.Println("Health monitor started!")
+
 		// Setup event handlers
-		s.AddHandler(handlers.MessageCreateHandler(dashboardManager.Messages))
+		s.AddHandler(handlers.MessageCreateHandler(dashboardManager.Messages, statusManager))
 		s.AddHandler(handlers.GenericEventHandler(dashboardManager.Events, dashboardManager.Voice, dashboardManager.VoiceState))
 		log.Println("All event handlers registered.")
 	})
@@ -108,6 +152,13 @@ func main() {
 	<-stop
 
 	log.Println("Shutting down...")
+
+	// Disconnect from voice if connected
+	if voiceManager != nil {
+		if err := voiceManager.LeaveVoiceChannel(); err != nil {
+			log.Printf("Note: %v", err) // Not necessarily an error if not connected
+		}
+	}
 
 	// Cleanup dashboards
 	if dashboardManager != nil {

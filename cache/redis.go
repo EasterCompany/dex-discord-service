@@ -56,3 +56,8 @@ func (c *RedisClient) GetListRange(ctx context.Context, key string, start, stop 
 func (c *RedisClient) PublishEvent(ctx context.Context, channel, message string) error {
 	return c.Publish(ctx, channel, message).Err()
 }
+
+// ClearCache deletes all keys in the current database.
+func (c *RedisClient) ClearCache(ctx context.Context) error {
+	return c.FlushDB(ctx).Err()
+}
