@@ -115,18 +115,34 @@ func (d *ServerDashboard) formatServerInfo() string {
 	}
 	builder.WriteString(fmt.Sprintf("**Owner:** %s\n\n", ownerInfo))
 
-	// Dex Status section - use dex status command
-	builder.WriteString("**📊 Dex Status**\n")
+	// Status section - use dex status command
+	builder.WriteString("**Status**\n")
 	builder.WriteString("```\n")
 
 	// Run dex status command
-	cmd := exec.Command("/home/owen/Dexter/bin/dex", "status")
-	output, err := cmd.CombinedOutput()
+	statusCmd := exec.Command("/home/owen/Dexter/bin/dex", "status")
+	statusOutput, err := statusCmd.CombinedOutput()
 	if err != nil {
 		builder.WriteString(fmt.Sprintf("Error running dex status: %v\n", err))
 	} else {
 		// Include the output directly
-		builder.WriteString(string(output))
+		builder.WriteString(string(statusOutput))
+	}
+
+	builder.WriteString("```\n\n")
+
+	// System section - use dex system command
+	builder.WriteString("**System**\n")
+	builder.WriteString("```\n")
+
+	// Run dex system command
+	systemCmd := exec.Command("/home/owen/Dexter/bin/dex", "system")
+	systemOutput, err := systemCmd.CombinedOutput()
+	if err != nil {
+		builder.WriteString(fmt.Sprintf("Error running dex system: %v\n", err))
+	} else {
+		// Include the output directly
+		builder.WriteString(string(systemOutput))
 	}
 
 	builder.WriteString("```\n")
