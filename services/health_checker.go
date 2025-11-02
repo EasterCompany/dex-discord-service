@@ -51,7 +51,7 @@ func (hc *HealthChecker) RegisterService(name, endpoint string) {
 
 	hc.services[name] = &ServiceStatus{
 		Name:      name,
-		Status:    "unknown",
+		Status:    "N/A",
 		Endpoint:  endpoint,
 		LastCheck: time.Now(),
 	}
@@ -118,7 +118,7 @@ func (hc *HealthChecker) checkService(name, endpoint string) {
 	status.ResponseTime = responseTime
 
 	if err != nil {
-		status.Status = "offline"
+		status.Status = "BAD"
 		status.Uptime = ""
 		status.Version = ""
 		status.Metrics = nil
@@ -130,7 +130,7 @@ func (hc *HealthChecker) checkService(name, endpoint string) {
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		status.Status = "degraded"
+		status.Status = "BAD"
 		log.Printf("[HEALTH] %s: DEGRADED (HTTP %d)", name, resp.StatusCode)
 		return
 	}
@@ -138,14 +138,14 @@ func (hc *HealthChecker) checkService(name, endpoint string) {
 	// Parse status response
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		status.Status = "degraded"
+		status.Status = "BAD"
 		log.Printf("[HEALTH] %s: DEGRADED (failed to read response)", name)
 		return
 	}
 
 	var serviceStatus map[string]interface{}
 	if err := json.Unmarshal(body, &serviceStatus); err != nil {
-		status.Status = "degraded"
+		status.Status = "BAD"
 		log.Printf("[HEALTH] %s: DEGRADED (invalid JSON)", name)
 		return
 	}
@@ -154,7 +154,7 @@ func (hc *HealthChecker) checkService(name, endpoint string) {
 	if statusStr, ok := serviceStatus["status"].(string); ok {
 		status.Status = statusStr
 	} else {
-		status.Status = "operational" // Default if responding
+		status.Status = "OK" // Default if responding
 	}
 
 	if uptime, ok := serviceStatus["uptime"].(string); ok {
@@ -202,14 +202,12 @@ func (hc *HealthChecker) GetAllServices() map[string]*ServiceStatus {
 // GetStatusEmoji returns an emoji indicator for service status
 func GetStatusEmoji(status string) string {
 	switch status {
-	case "operational":
+	case "OK":
 		return "✅"
-	case "degraded":
-		return "⚠️"
-	case "offline":
+	case "BAD":
 		return "❌"
-	case "starting":
-		return "🔄"
+	case "N/A":
+		return "❓"
 	default:
 		return "❓"
 	}

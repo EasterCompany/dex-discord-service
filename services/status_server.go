@@ -63,7 +63,7 @@ func (ss *StatusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	status := map[string]interface{}{
 		"service":   "dex-discord-service",
-		"status":    "operational",
+		"status":    "OK",
 		"version":   ss.version,
 		"uptime":    int(uptime.Seconds()),
 		"timestamp": time.Now().Unix(),
