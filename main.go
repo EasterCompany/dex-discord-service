@@ -119,9 +119,6 @@ func main() {
 			log.Fatalf("Failed to initialize dashboards: %v", err)
 		}
 
-		// Wire health checker to server dashboard
-		dashboardManager.Server.SetHealthChecker(healthChecker)
-
 		// Force initial update to populate server info immediately
 		if err := dashboardManager.Server.ForceUpdate(); err != nil {
 			log.Printf("Warning: Failed to update server dashboard: %v", err)

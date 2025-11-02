@@ -3,21 +3,20 @@ package dashboard
 import (
 	"fmt"
 	"log"
+	"os/exec"
 	"strings"
 	"time"
 
-	"github.com/EasterCompany/dex-discord-service/services"
 	"github.com/bwmarrin/discordgo"
 )
 
 // ServerDashboard shows Discord server/guild information
 type ServerDashboard struct {
-	session       *discordgo.Session
-	logChannelID  string
-	serverID      string
-	cache         *MessageCache
-	startTime     time.Time
-	healthChecker *services.HealthChecker
+	session      *discordgo.Session
+	logChannelID string
+	serverID     string
+	cache        *MessageCache
+	startTime    time.Time
 }
 
 // NewServerDashboard creates a new server dashboard
@@ -116,42 +115,21 @@ func (d *ServerDashboard) formatServerInfo() string {
 	}
 	builder.WriteString(fmt.Sprintf("**Owner:** %s\n\n", ownerInfo))
 
-	// Dex-Net section
-	if d.healthChecker != nil {
-		builder.WriteString("**🏗️ Dex-Net**\n")
-		builder.WriteString("```\n")
+	// Dex Status section - use dex status command
+	builder.WriteString("**📊 Dex Status**\n")
+	builder.WriteString("```\n")
 
-		allServices := d.healthChecker.GetAllServices()
-
-		// Always show discord-service first (this service)
-		builder.WriteString(fmt.Sprintf("%-25s %s %s\n",
-			"discord-service",
-			services.GetStatusEmoji("operational"),
-			"127.0.0.1:8200",
-		))
-
-		// Show other services
-		for name, status := range allServices {
-			emoji := services.GetStatusEmoji(status.Status)
-			endpoint := strings.TrimPrefix(status.Endpoint, "http://")
-
-			// Display service with status
-			line := fmt.Sprintf("%-25s %s %s",
-				name,
-				emoji,
-				endpoint,
-			)
-
-			// Add response time if online
-			if status.Status == "operational" || status.Status == "degraded" {
-				line += fmt.Sprintf(" (%dms)", status.ResponseTime)
-			}
-
-			builder.WriteString(line + "\n")
-		}
-
-		builder.WriteString("```\n")
+	// Run dex status command
+	cmd := exec.Command("/home/owen/Dexter/bin/dex", "status")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		builder.WriteString(fmt.Sprintf("Error running dex status: %v\n", err))
+	} else {
+		// Include the output directly
+		builder.WriteString(string(output))
 	}
+
+	builder.WriteString("```\n")
 
 	return builder.String()
 }
@@ -164,9 +142,4 @@ func (d *ServerDashboard) formatShutdownMessage() string {
 // GetServerID returns the server ID for context building
 func (d *ServerDashboard) GetServerID() string {
 	return d.serverID
-}
-
-// SetHealthChecker sets the health checker for service status display
-func (d *ServerDashboard) SetHealthChecker(hc *services.HealthChecker) {
-	d.healthChecker = hc
 }
