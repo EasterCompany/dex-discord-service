@@ -37,6 +37,9 @@ if [ ! -f "$CONFIG_PATH" ]; then
 fi
 
 echo "Creating systemd user service file at $SERVICE_FILE..."
+LOG_FILE="$HOME/Dexter/logs/$SERVICE_NAME.log"
+mkdir -p "$HOME/Dexter/logs"
+
 cat <<EOT >"$SERVICE_FILE"
 [Unit]
 Description=Dex Discord Service (User Service)
@@ -47,6 +50,8 @@ ExecStart=$EXECUTABLE_PATH
 WorkingDirectory=%h
 Restart=always
 RestartSec=3
+StandardOutput=append:$LOG_FILE
+StandardError=append:$LOG_FILE
 
 [Install]
 WantedBy=default.target

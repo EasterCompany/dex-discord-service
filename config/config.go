@@ -111,11 +111,11 @@ type ServiceType struct {
 
 // ServiceEntry represents a single service in the service map
 type ServiceEntry struct {
-	ID          string             `json:"id"`
-	Source      string             `json:"source"`
-	Repo        string             `json:"repo"`
-	Addr        string             `json:"addr"`
-	Socket      string             `json:"socket"`
+	ID          string              `json:"id"`
+	Source      string              `json:"source"`
+	Repo        string              `json:"repo"`
+	Addr        string              `json:"addr"`
+	Socket      string              `json:"socket"`
 	Credentials *ServiceCredentials `json:"credentials,omitempty"`
 }
 
