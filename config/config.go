@@ -10,9 +10,9 @@ import (
 
 // Hardcoded Dexter environment layout
 const (
-	DexterRoot      = "~/Dexter"
+	DexterRoot        = "~/Dexter"
 	EasterCompanyRoot = "~/EasterCompany"
-	ServiceID       = "dex-discord-service"
+	ServiceID         = "dex-discord-service"
 )
 
 // Config holds all application configuration
@@ -269,15 +269,15 @@ func Load() (*Config, error) {
 
 	// Build the final config
 	cfg := &Config{
-		DiscordToken:  options.Discord.Token,
-		ServerID:      options.Discord.ServerID,
-		LogChannelID:  options.Discord.DebugChannelID,
-		RedisAddr:     "127.0.0.1:6379", // Default Redis address
-		RedisPassword: options.Redis.Password,
-		RedisDB:       options.Redis.DB,
-		ServiceAddr:   "127.0.0.1",
-		ServicePort:   servicePort,
-		Services:      services,
+		DiscordToken:       options.Discord.Token,
+		ServerID:           options.Discord.ServerID,
+		LogChannelID:       options.Discord.DebugChannelID,
+		RedisAddr:          "127.0.0.1:6379", // Default Redis address
+		RedisPassword:      options.Redis.Password,
+		RedisDB:            options.Redis.DB,
+		ServiceAddr:        "127.0.0.1",
+		ServicePort:        servicePort,
+		Services:           services,
 		CommandPermissions: options.CommandPermissions,
 	}
 
