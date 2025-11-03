@@ -24,7 +24,6 @@ var (
 	healthMonitor    *handlers.HealthMonitor
 	statusManager    *handlers.StatusManager
 	snapshotBuilder  *contextpkg.SnapshotBuilder
-	healthChecker    *services.HealthChecker
 	statusServer     *services.StatusServer
 	commandHandler   *commands.Handler
 	startTime        time.Time
@@ -58,21 +57,8 @@ func main() {
 	}
 	log.Println("Redis cache cleared!")
 
-	// Initialize service health checker
-	healthChecker = services.NewHealthChecker(10 * time.Second) // Check every 10 seconds
-
-	// Register external services from config with /status endpoints
-	for serviceName := range cfg.Services {
-		statusURL := cfg.GetServiceStatusURL(serviceName)
-		healthChecker.RegisterService(serviceName, statusURL)
-	}
-
-	// Start health checker
-	healthChecker.Start()
-	defer healthChecker.Stop()
-
 	// Initialize status server
-	statusServer = services.NewStatusServer(cfg.ServicePort, "1.0.0", healthChecker)
+	statusServer = services.NewStatusServer(cfg.ServicePort, "1.0.0")
 	if err := statusServer.Start(); err != nil {
 		log.Fatalf("Failed to start status server: %v", err)
 	}
