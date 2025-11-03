@@ -12,10 +12,9 @@ import (
 
 // StatusServer provides HTTP status endpoint for this service
 type StatusServer struct {
-	startTime     time.Time
-	port          int
-	version       string
-	healthChecker *HealthChecker
+	startTime time.Time
+	port      int
+	version   string
 
 	// Metrics
 	messagesProcessed atomic.Uint64
@@ -25,12 +24,11 @@ type StatusServer struct {
 }
 
 // NewStatusServer creates a new status server
-func NewStatusServer(port int, version string, healthChecker *HealthChecker) *StatusServer {
+func NewStatusServer(port int, version string) *StatusServer {
 	return &StatusServer{
-		startTime:     time.Now(),
-		port:          port,
-		version:       version,
-		healthChecker: healthChecker,
+		startTime: time.Now(),
+		port:      port,
+		version:   version,
 	}
 }
 
@@ -39,10 +37,9 @@ func (ss *StatusServer) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", ss.handleStatus)
 	mux.HandleFunc("/health", ss.handleHealth)
-	mux.HandleFunc("/services", ss.handleServices)
 
-	addr := fmt.Sprintf("127.0.0.1:%d", ss.port)
-	log.Printf("[STATUS] Starting status server on http://%s", addr)
+	addr := fmt.Sprintf(":%d", ss.port)
+	log.Printf("[STATUS] Starting status server on 0.0.0.0:%d", ss.port)
 
 	go func() {
 		if err := http.ListenAndServe(addr, mux); err != nil {
@@ -78,7 +75,6 @@ func (ss *StatusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 			"memory_sys_mb":      float64(m.Sys) / 1024 / 1024,
 			"gc_runs":            m.NumGC,
 		},
-		"services": ss.healthChecker.GetAllServices(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -94,19 +90,6 @@ func (ss *StatusServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status": "ok",
 	}); err != nil {
 		log.Printf("[STATUS] Error encoding health: %v", err)
-	}
-}
-
-// handleServices returns status of all monitored services
-func (ss *StatusServer) handleServices(w http.ResponseWriter, r *http.Request) {
-	services := ss.healthChecker.GetAllServices()
-
-	w.Header().Set("Content-Type", "application/json")
-	if err := json.NewEncoder(w).Encode(map[string]interface{}{
-		"services": services,
-		"count":    len(services),
-	}); err != nil {
-		log.Printf("[STATUS] Error encoding services: %v", err)
 	}
 }
 
