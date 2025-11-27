@@ -8,6 +8,9 @@ import (
 	"syscall"
 	"time"
 
+	"fmt"
+	"strings"
+
 	"github.com/EasterCompany/dex-discord-service/cache"
 	"github.com/EasterCompany/dex-discord-service/commands"
 	"github.com/EasterCompany/dex-discord-service/config"
@@ -27,6 +30,14 @@ var (
 	statusServer     *services.StatusServer
 	commandHandler   *commands.Handler
 	startTime        time.Time
+
+	// Version information, injected at build time
+	version   string
+	branch    string
+	commit    string
+	buildDate string
+	buildHash string
+	arch      string
 )
 
 func main() {
@@ -38,6 +49,18 @@ func main() {
 		log.Fatalf("Failed to load config: %v", err)
 	}
 	log.Printf("Loaded config for server: %s\n", cfg.ServerID)
+
+	// Format the full version string using the same logic as other services
+	formattedArch := strings.ReplaceAll(arch, "/", "-")
+	vParts := strings.Split(strings.TrimPrefix(version, "v"), ".")
+	major, minor, patch := "0", "0", "0"
+	if len(vParts) >= 3 {
+		major = vParts[0]
+		minor = vParts[1]
+		patch = vParts[2]
+	}
+	fullVersion := fmt.Sprintf("%s.%s.%s.%s.%s.%s.%s.%s",
+		major, minor, patch, branch, commit, buildDate, formattedArch, buildHash)
 
 	// Initialize Redis client
 	redisClient, err := cache.NewRedisClient(cfg)
@@ -58,7 +81,7 @@ func main() {
 	log.Println("Redis cache cleared!")
 
 	// Initialize status server
-	statusServer = services.NewStatusServer(cfg.ServicePort, "1.0.0")
+	statusServer = services.NewStatusServer(cfg.ServicePort, fullVersion)
 	if err := statusServer.Start(); err != nil {
 		log.Fatalf("Failed to start status server: %v", err)
 	}

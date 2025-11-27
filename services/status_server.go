@@ -37,6 +37,7 @@ func (ss *StatusServer) Start() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/status", ss.handleStatus)
 	mux.HandleFunc("/health", ss.handleHealth)
+	mux.HandleFunc("/service", ss.handleService) // New handler for service information
 
 	addr := fmt.Sprintf(":%d", ss.port)
 	log.Printf("[STATUS] Starting status server on 0.0.0.0:%d", ss.port)
@@ -81,6 +82,20 @@ func (ss *StatusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if err := json.NewEncoder(w).Encode(status); err != nil {
 		log.Printf("[STATUS] Error encoding status: %v", err)
 	}
+}
+
+// handleService returns service information, including version
+func (ss *StatusServer) handleService(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Query().Get("format") == "version" {
+		w.Header().Set("Content-Type", "text/plain")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(ss.version))
+		return
+	}
+
+	// For now, redirect to /status for detailed info if not requesting just version
+	// In the future, this could return a more tailored "service info" JSON.
+	ss.handleStatus(w, r)
 }
 
 // handleHealth returns simple health check (for load balancers)
