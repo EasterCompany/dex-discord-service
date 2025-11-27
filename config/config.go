@@ -290,17 +290,6 @@ func Load() (*Config, error) {
 		CommandPermissions: options.CommandPermissions,
 	}
 
-	// Validate required fields
-	if cfg.DiscordToken == "" {
-		return nil, fmt.Errorf("discord token is required in options.json")
-	}
-	if cfg.ServerID == "" {
-		return nil, fmt.Errorf("server_id is required in options.json")
-	}
-	if cfg.LogChannelID == "" {
-		return nil, fmt.Errorf("debug_channel_id is required in options.json")
-	}
-
 	// Set command permission defaults
 	if cfg.CommandPermissions.AllowedRoles == nil {
 		cfg.CommandPermissions.AllowedRoles = []string{}
