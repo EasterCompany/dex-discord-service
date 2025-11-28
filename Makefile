@@ -52,9 +52,12 @@ service: check
 
 install: service
 	@echo "Installing binaries to $(BIN_DIR)..."
+	@mkdir -p $(BIN_DIR)
 	@cp $(SERVICE_NAME) $(BIN_DIR)/$(SERVICE_NAME)
 	@chmod +x $(BIN_DIR)/$(SERVICE_NAME)
 	@echo "✓ Installed $(SERVICE_NAME) to $(BIN_DIR)"
+	@rm -f $(SERVICE_NAME)
+	@echo "✓ Cleaned source directory"
 
 build: clean all install
 	@echo "✓ Build complete - $(SERVICE_NAME) v$(VERSION) ready!"
@@ -62,4 +65,5 @@ build: clean all install
 clean:
 	@echo "Cleaning build artifacts..."
 	@rm -f $(SERVICE_NAME)
+	@rm -f $(BIN_DIR)/$(SERVICE_NAME)
 	@echo "✓ Clean complete"
