@@ -257,14 +257,14 @@ func sendEventData(eventType string, eventData map[string]interface{}) error {
 			}
 		}()
 
-		if resp.StatusCode != http.StatusOK {
+		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
 			if attempt < maxRetries {
-				log.Printf("Event service returned non-OK status (attempt %d/%d): %s. Retrying in %v...", attempt+1, maxRetries+1, resp.Status, retryDelay)
+				log.Printf("Event service returned error status (attempt %d/%d): %s. Retrying in %v...", attempt+1, maxRetries+1, resp.Status, retryDelay)
 				time.Sleep(retryDelay)
 				retryDelay *= 2 // Exponential backoff
 				continue
 			}
-			return fmt.Errorf("event service returned non-OK status after %d attempts: %s", maxRetries+1, resp.Status)
+			return fmt.Errorf("event service returned error status after %d attempts: %s", maxRetries+1, resp.Status)
 		}
 
 		// Success
