@@ -211,18 +211,19 @@ func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (
 // setupVoiceReceivers configures the voice connection to receive and process audio packets
 func setupVoiceReceivers(vc *discordgo.VoiceConnection) {
 	// Add speaking state handler
+	// This handler fires for EVERY user in the channel, regardless of bot state
 	vc.AddHandler(func(vc *discordgo.VoiceConnection, vs *discordgo.VoiceSpeakingUpdate) {
 		// Register SSRC to user ID mapping for this channel
 		voiceRecorder.RegisterSSRC(uint32(vs.SSRC), vs.UserID, vc.ChannelID)
 
 		if vs.Speaking {
-			// User started speaking - start recording
+			// User started speaking - start recording snapshot
 			log.Printf("User %s (SSRC %d) started speaking in channel %s", vs.UserID, vs.SSRC, vc.ChannelID)
 			if err := voiceRecorder.StartRecording(vs.UserID, vc.ChannelID); err != nil {
 				log.Printf("Error starting recording for user %s: %v", vs.UserID, err)
 			}
 		} else {
-			// User stopped speaking - stop recording
+			// User stopped speaking - save the recording snapshot
 			log.Printf("User %s (SSRC %d) stopped speaking in channel %s", vs.UserID, vs.SSRC, vc.ChannelID)
 			if err := voiceRecorder.StopRecording(vs.UserID); err != nil {
 				log.Printf("Error stopping recording for user %s: %v", vs.UserID, err)
