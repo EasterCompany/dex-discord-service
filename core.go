@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/EasterCompany/dex-discord-service/audio"
@@ -20,6 +21,8 @@ var masterUserID string
 var defaultVoiceChannelID string
 var serverID string
 var voiceRecorder *audio.VoiceRecorder
+var activeVoiceConnection *discordgo.VoiceConnection
+var voiceConnectionMutex sync.Mutex
 
 // RunCoreLogic represents the persistent core functionality of the service.
 // It connects to Discord and manages the session with automatic reconnection.
@@ -155,19 +158,48 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 	// Join the default voice channel on boot
 	if defaultVoiceChannelID != "" && serverID != "" {
 		log.Printf("Joining default voice channel...")
-		// mute=true (bot won't send audio), deaf=false (bot can receive audio)
-		vc, err := s.ChannelVoiceJoin(serverID, defaultVoiceChannelID, true, false)
+		_, err := joinOrMoveToVoiceChannel(s, serverID, defaultVoiceChannelID)
 		if err != nil {
 			log.Printf("Error joining default voice channel: %v", err)
 		} else {
 			log.Printf("Bot successfully joined default voice channel")
-			if vc != nil {
-				// Set up voice packet receivers for recording
-				setupVoiceReceivers(vc)
-				time.Sleep(1 * time.Second) // Give it time to connect
-			}
+			time.Sleep(1 * time.Second) // Give it time to connect
 		}
 	}
+}
+
+// joinOrMoveToVoiceChannel joins a voice channel or moves to a new one, reusing the connection
+func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (*discordgo.VoiceConnection, error) {
+	voiceConnectionMutex.Lock()
+	defer voiceConnectionMutex.Unlock()
+
+	// If we already have an active connection, just move to the new channel
+	if activeVoiceConnection != nil {
+		// Check if we're already in the target channel
+		if activeVoiceConnection.ChannelID == channelID {
+			log.Printf("Already in voice channel %s, reusing connection", channelID)
+			return activeVoiceConnection, nil
+		}
+
+		// Move to the new channel by calling ChannelVoiceJoin again
+		// discordgo will handle moving the existing connection
+		log.Printf("Moving voice connection from %s to %s", activeVoiceConnection.ChannelID, channelID)
+	}
+
+	// Join the channel (or move if we already have a connection)
+	// mute=true (bot won't send audio), deaf=false (bot can receive audio)
+	vc, err := s.ChannelVoiceJoin(guildID, channelID, true, false)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set up receivers only if this is a new connection or we moved
+	if activeVoiceConnection == nil || activeVoiceConnection.ChannelID != channelID {
+		setupVoiceReceivers(vc)
+	}
+
+	activeVoiceConnection = vc
+	return vc, nil
 }
 
 // setupVoiceReceivers configures the voice connection to receive and process audio packets
@@ -250,32 +282,24 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 				log.Printf("Error getting channel for bot to join: %v", err)
 			} else {
 				log.Printf("Master user joined %s, bot following...", channel.Name)
-				// mute=true (bot won't send audio), deaf=false (bot can receive audio)
-				vc, err := s.ChannelVoiceJoin(v.GuildID, v.ChannelID, true, false)
+				_, err := joinOrMoveToVoiceChannel(s, v.GuildID, v.ChannelID)
 				if err != nil {
 					log.Printf("Error joining voice channel: %v", err)
 				} else {
 					log.Printf("Bot successfully joined %s voice channel", channel.Name)
-					if vc != nil {
-						setupVoiceReceivers(vc)
-						time.Sleep(1 * time.Second)
-					}
+					time.Sleep(1 * time.Second)
 				}
 			}
 		} else {
 			// Master user left voice - bot should return to default channel
 			log.Printf("Master user left voice, bot returning to default channel...")
 			if defaultVoiceChannelID != "" && serverID != "" {
-				// mute=true (bot won't send audio), deaf=false (bot can receive audio)
-				vc, err := s.ChannelVoiceJoin(serverID, defaultVoiceChannelID, true, false)
+				_, err := joinOrMoveToVoiceChannel(s, serverID, defaultVoiceChannelID)
 				if err != nil {
 					log.Printf("Error returning to default voice channel: %v", err)
 				} else {
 					log.Printf("Bot successfully returned to default voice channel")
-					if vc != nil {
-						setupVoiceReceivers(vc)
-						time.Sleep(1 * time.Second)
-					}
+					time.Sleep(1 * time.Second)
 				}
 			}
 		}
