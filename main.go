@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
-
-	"fmt"
-	"strings"
 
 	"github.com/EasterCompany/dex-discord-service/cache"
 	"github.com/EasterCompany/dex-discord-service/commands"
@@ -47,6 +46,28 @@ func main() {
 	}
 	fullVersion := fmt.Sprintf("%s.%s.%s.%s.%s.%s.%s.%s",
 		major, minor, patch, branch, commit, buildDate, formattedArch, buildHash)
+
+	// Handle CLI arguments (version, help, etc.) - exit after displaying
+	if len(os.Args) > 1 {
+		arg := os.Args[1]
+		switch arg {
+		case "--version", "-v", "version":
+			fmt.Println(fullVersion)
+			os.Exit(0)
+		case "--help", "-h", "help":
+			fmt.Println("Dexter Discord Service")
+			fmt.Println()
+			fmt.Println("Usage:")
+			fmt.Println("  dex-discord-service          Start the Discord bot and status server")
+			fmt.Println("  dex-discord-service version  Display version information")
+			fmt.Println("  dex-discord-service help     Display this help message")
+			os.Exit(0)
+		default:
+			fmt.Printf("Unknown argument: %s\n", arg)
+			fmt.Println("Use 'dex-discord-service help' for usage information")
+			os.Exit(1)
+		}
+	}
 
 	// Load configuration
 	cfg, err := config.Load()
