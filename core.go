@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/EasterCompany/dex-discord-service/audio"
 	"github.com/EasterCompany/dex-discord-service/endpoints"
 	"github.com/EasterCompany/dex-discord-service/utils"
 	"github.com/bwmarrin/discordgo"
@@ -18,6 +19,7 @@ var eventServiceURL string
 var masterUserID string
 var defaultVoiceChannelID string
 var serverID string
+var voiceRecorder *audio.VoiceRecorder
 
 // RunCoreLogic represents the persistent core functionality of the service.
 // It connects to Discord and manages the session with automatic reconnection.
@@ -26,6 +28,14 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 	masterUserID = masterUser
 	defaultVoiceChannelID = defaultChannel
 	serverID = guildID
+
+	// Initialize voice recorder
+	voiceRecorder = audio.NewVoiceRecorder()
+
+	// Ensure data directory exists
+	if err := audio.EnsureDataDir(); err != nil {
+		log.Printf("Warning: Failed to create data directory: %v", err)
+	}
 
 	// Initialize Discord session
 	dg, err := discordgo.New("Bot " + token)
@@ -147,12 +157,50 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 			log.Printf("Error joining default voice channel: %v", err)
 		} else {
 			log.Printf("Bot successfully joined default voice channel")
-			// Close the voice connection to avoid hanging (we just want to appear in the channel)
 			if vc != nil {
+				// Set up voice packet receivers for recording
+				setupVoiceReceivers(vc)
 				time.Sleep(1 * time.Second) // Give it time to connect
 			}
 		}
 	}
+}
+
+// setupVoiceReceivers configures the voice connection to receive and process audio packets
+func setupVoiceReceivers(vc *discordgo.VoiceConnection) {
+	// Add speaking state handler
+	vc.AddHandler(func(vc *discordgo.VoiceConnection, vs *discordgo.VoiceSpeakingUpdate) {
+		// Register SSRC to user ID mapping
+		voiceRecorder.RegisterSSRC(uint32(vs.SSRC), vs.UserID)
+
+		if vs.Speaking {
+			// User started speaking - start recording
+			log.Printf("User %s (SSRC %d) started speaking in channel %s", vs.UserID, vs.SSRC, vc.ChannelID)
+			if err := voiceRecorder.StartRecording(vs.UserID, vc.ChannelID); err != nil {
+				log.Printf("Error starting recording for user %s: %v", vs.UserID, err)
+			}
+		} else {
+			// User stopped speaking - stop recording
+			log.Printf("User %s (SSRC %d) stopped speaking in channel %s", vs.UserID, vs.SSRC, vc.ChannelID)
+			if err := voiceRecorder.StopRecording(vs.UserID); err != nil {
+				log.Printf("Error stopping recording for user %s: %v", vs.UserID, err)
+			}
+		}
+	})
+
+	// Add opus packet handler
+	go func() {
+		for p := range vc.OpusRecv {
+			if p != nil && p.Opus != nil {
+				// Process voice packet for recording
+				if err := voiceRecorder.ProcessVoicePacket(p.SSRC, p); err != nil {
+					log.Printf("Error processing voice packet: %v", err)
+				}
+			}
+		}
+	}()
+
+	log.Println("Voice receivers configured for recording")
 }
 
 // messageCreate is called every time a new message is created on any channel.
@@ -204,6 +252,7 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 				} else {
 					log.Printf("Bot successfully joined %s voice channel", channel.Name)
 					if vc != nil {
+						setupVoiceReceivers(vc)
 						time.Sleep(1 * time.Second)
 					}
 				}
@@ -218,6 +267,7 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 				} else {
 					log.Printf("Bot successfully returned to default voice channel")
 					if vc != nil {
+						setupVoiceReceivers(vc)
 						time.Sleep(1 * time.Second)
 					}
 				}
