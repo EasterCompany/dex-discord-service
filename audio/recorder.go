@@ -32,16 +32,17 @@ type UserRecording struct {
 
 // VoiceRecorder manages voice recordings for all users
 type VoiceRecorder struct {
-	recordings map[string]*UserRecording // key: userID
-	ssrcToUser map[uint32]string         // maps SSRC to userID
-	mutex      sync.RWMutex
+	recordings       map[string]*UserRecording    // key: userID
+	ssrcToUser       map[string]map[uint32]string // maps channelID -> SSRC -> userID
+	currentChannelID string                       // currently active channel
+	mutex            sync.RWMutex
 }
 
 // NewVoiceRecorder creates a new voice recorder instance
 func NewVoiceRecorder() *VoiceRecorder {
 	return &VoiceRecorder{
 		recordings: make(map[string]*UserRecording),
-		ssrcToUser: make(map[uint32]string),
+		ssrcToUser: make(map[string]map[uint32]string),
 	}
 }
 
@@ -103,22 +104,85 @@ func (vr *VoiceRecorder) StopRecording(userID string) error {
 	return nil
 }
 
-// RegisterSSRC maps an SSRC to a user ID
-func (vr *VoiceRecorder) RegisterSSRC(ssrc uint32, userID string) {
+// SetCurrentChannel updates the current channel ID
+func (vr *VoiceRecorder) SetCurrentChannel(channelID string) {
 	vr.mutex.Lock()
 	defer vr.mutex.Unlock()
-	vr.ssrcToUser[ssrc] = userID
+	vr.currentChannelID = channelID
+	log.Printf("Set current voice channel to %s", channelID)
+}
+
+// RegisterSSRC maps an SSRC to a user ID for the current channel
+func (vr *VoiceRecorder) RegisterSSRC(ssrc uint32, userID string, channelID string) {
+	vr.mutex.Lock()
+	defer vr.mutex.Unlock()
+
+	// Ensure the channel map exists
+	if vr.ssrcToUser[channelID] == nil {
+		vr.ssrcToUser[channelID] = make(map[uint32]string)
+	}
+
+	vr.ssrcToUser[channelID][ssrc] = userID
+	log.Printf("Registered SSRC %d for user %s in channel %s", ssrc, userID, channelID)
+}
+
+// UnregisterSSRC removes an SSRC mapping for a specific channel
+func (vr *VoiceRecorder) UnregisterSSRC(ssrc uint32, channelID string) {
+	vr.mutex.Lock()
+	defer vr.mutex.Unlock()
+
+	if channelMap, exists := vr.ssrcToUser[channelID]; exists {
+		if userID, exists := channelMap[ssrc]; exists {
+			log.Printf("Unregistered SSRC %d for user %s in channel %s", ssrc, userID, channelID)
+			delete(channelMap, ssrc)
+		}
+	}
+}
+
+// ClearChannelSSRC clears SSRC mappings for a specific channel
+func (vr *VoiceRecorder) ClearChannelSSRC(channelID string) {
+	vr.mutex.Lock()
+	defer vr.mutex.Unlock()
+
+	if channelMap, exists := vr.ssrcToUser[channelID]; exists {
+		count := len(channelMap)
+		delete(vr.ssrcToUser, channelID)
+		log.Printf("Cleared %d SSRC mappings for channel %s", count, channelID)
+	}
+}
+
+// StopAllRecordings stops and saves all active recordings (useful when moving channels)
+func (vr *VoiceRecorder) StopAllRecordings() {
+	vr.mutex.Lock()
+	// Get a copy of all user IDs that are currently recording
+	userIDs := make([]string, 0, len(vr.recordings))
+	for userID := range vr.recordings {
+		userIDs = append(userIDs, userID)
+	}
+	vr.mutex.Unlock()
+
+	// Stop each recording (this will handle the mutex internally)
+	for _, userID := range userIDs {
+		if err := vr.StopRecording(userID); err != nil {
+			log.Printf("Error stopping recording for user %s: %v", userID, err)
+		}
+	}
 }
 
 // ProcessVoicePacket processes an incoming voice packet
 func (vr *VoiceRecorder) ProcessVoicePacket(ssrc uint32, packet *discordgo.Packet) error {
-	// Look up user ID from SSRC
+	// Look up user ID from SSRC in the current channel
 	vr.mutex.RLock()
-	userID, exists := vr.ssrcToUser[ssrc]
+	channelID := vr.currentChannelID
+	var userID string
+	var exists bool
+	if channelMap, ok := vr.ssrcToUser[channelID]; ok {
+		userID, exists = channelMap[ssrc]
+	}
 	vr.mutex.RUnlock()
 
 	if !exists {
-		// Unknown SSRC, skip
+		// Unknown SSRC for current channel, skip
 		return nil
 	}
 	vr.mutex.RLock()

@@ -173,7 +173,7 @@ func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (
 	voiceConnectionMutex.Lock()
 	defer voiceConnectionMutex.Unlock()
 
-	// If we already have an active connection, just move to the new channel
+	// If we already have an active connection, check if we need to move
 	if activeVoiceConnection != nil {
 		// Check if we're already in the target channel
 		if activeVoiceConnection.ChannelID == channelID {
@@ -181,9 +181,12 @@ func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (
 			return activeVoiceConnection, nil
 		}
 
-		// Move to the new channel by calling ChannelVoiceJoin again
-		// discordgo will handle moving the existing connection
+		// We're moving to a new channel - save any active recordings
 		log.Printf("Moving voice connection from %s to %s", activeVoiceConnection.ChannelID, channelID)
+		log.Printf("Stopping all active recordings before channel move...")
+		voiceRecorder.StopAllRecordings()
+		// Note: We keep SSRC mappings per channel, so we don't clear them
+		// This way if we return to a previous channel, the mappings might still be valid
 	}
 
 	// Join the channel (or move if we already have a connection)
@@ -192,6 +195,9 @@ func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (
 	if err != nil {
 		return nil, err
 	}
+
+	// Update the current channel in the voice recorder
+	voiceRecorder.SetCurrentChannel(channelID)
 
 	// Set up receivers only if this is a new connection or we moved
 	if activeVoiceConnection == nil || activeVoiceConnection.ChannelID != channelID {
@@ -206,8 +212,8 @@ func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (
 func setupVoiceReceivers(vc *discordgo.VoiceConnection) {
 	// Add speaking state handler
 	vc.AddHandler(func(vc *discordgo.VoiceConnection, vs *discordgo.VoiceSpeakingUpdate) {
-		// Register SSRC to user ID mapping
-		voiceRecorder.RegisterSSRC(uint32(vs.SSRC), vs.UserID)
+		// Register SSRC to user ID mapping for this channel
+		voiceRecorder.RegisterSSRC(uint32(vs.SSRC), vs.UserID, vc.ChannelID)
 
 		if vs.Speaking {
 			// User started speaking - start recording
