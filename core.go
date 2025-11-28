@@ -155,7 +155,8 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 	// Join the default voice channel on boot
 	if defaultVoiceChannelID != "" && serverID != "" {
 		log.Printf("Joining default voice channel...")
-		vc, err := s.ChannelVoiceJoin(serverID, defaultVoiceChannelID, true, true)
+		// mute=true (bot won't send audio), deaf=false (bot can receive audio)
+		vc, err := s.ChannelVoiceJoin(serverID, defaultVoiceChannelID, true, false)
 		if err != nil {
 			log.Printf("Error joining default voice channel: %v", err)
 		} else {
@@ -249,7 +250,8 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 				log.Printf("Error getting channel for bot to join: %v", err)
 			} else {
 				log.Printf("Master user joined %s, bot following...", channel.Name)
-				vc, err := s.ChannelVoiceJoin(v.GuildID, v.ChannelID, true, true)
+				// mute=true (bot won't send audio), deaf=false (bot can receive audio)
+				vc, err := s.ChannelVoiceJoin(v.GuildID, v.ChannelID, true, false)
 				if err != nil {
 					log.Printf("Error joining voice channel: %v", err)
 				} else {
@@ -264,7 +266,8 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 			// Master user left voice - bot should return to default channel
 			log.Printf("Master user left voice, bot returning to default channel...")
 			if defaultVoiceChannelID != "" && serverID != "" {
-				vc, err := s.ChannelVoiceJoin(serverID, defaultVoiceChannelID, true, true)
+				// mute=true (bot won't send audio), deaf=false (bot can receive audio)
+				vc, err := s.ChannelVoiceJoin(serverID, defaultVoiceChannelID, true, false)
 				if err != nil {
 					log.Printf("Error returning to default voice channel: %v", err)
 				} else {
