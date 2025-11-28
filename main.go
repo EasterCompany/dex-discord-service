@@ -94,8 +94,8 @@ func main() {
 
 	// Find the event service configuration from the service map
 	var eventServiceConfig *config.ServiceEntry
-	if thServices, ok := serviceMap.Services["th"]; ok {
-		for _, service := range thServices {
+	if csServices, ok := serviceMap.Services["cs"]; ok {
+		for _, service := range csServices {
 			if service.ID == "dex-event-service" {
 				eventServiceConfig = &service
 				break
