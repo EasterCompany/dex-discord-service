@@ -123,20 +123,22 @@ func main() {
 	}()
 
 	// Configure HTTP server
+	mux := http.NewServeMux()
+
+	// Register handlers
+	// /service endpoint is public (for health checks)
+	mux.HandleFunc("/service", endpoints.ServiceHandler)
+
+	// /post endpoint is protected by auth middleware
+	mux.HandleFunc("/post", middleware.ServiceAuthMiddleware(endpoints.PostHandler))
+
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
-		Handler:      nil, // Uses DefaultServeMux
+		Handler:      middleware.CorsMiddleware(mux),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
 		IdleTimeout:  60 * time.Second,
 	}
-
-	// Register handlers
-	// /service endpoint is public (for health checks)
-	http.HandleFunc("/service", endpoints.ServiceHandler)
-
-	// /post endpoint is protected by auth middleware
-	http.HandleFunc("/post", middleware.ServiceAuthMiddleware(endpoints.PostHandler))
 
 	// Start HTTP server in a goroutine
 	go func() {
