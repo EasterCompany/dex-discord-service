@@ -171,11 +171,11 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 			log.Printf("Error getting channel: %v", err)
 			return
 		}
-		newStatus = "joined"
 		channelName = channel.Name
+		newStatus = fmt.Sprintf("joined %s voice channel", channelName)
 	} else {
-		newStatus = "disconnected"
 		channelName = "voice"
+		newStatus = "disconnected from voice"
 	}
 
 	eventData := map[string]interface{}{
