@@ -142,11 +142,15 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 	// Join the default voice channel on boot
 	if defaultVoiceChannelID != "" && serverID != "" {
 		log.Printf("Joining default voice channel...")
-		_, err := s.ChannelVoiceJoin(serverID, defaultVoiceChannelID, false, true)
+		vc, err := s.ChannelVoiceJoin(serverID, defaultVoiceChannelID, false, false)
 		if err != nil {
 			log.Printf("Error joining default voice channel: %v", err)
 		} else {
 			log.Printf("Bot successfully joined default voice channel")
+			// Close the voice connection to avoid hanging (we just want to appear in the channel)
+			if vc != nil {
+				time.Sleep(1 * time.Second) // Give it time to connect
+			}
 		}
 	}
 }
@@ -194,22 +198,28 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 				log.Printf("Error getting channel for bot to join: %v", err)
 			} else {
 				log.Printf("Master user joined %s, bot following...", channel.Name)
-				_, err := s.ChannelVoiceJoin(v.GuildID, v.ChannelID, false, true)
+				vc, err := s.ChannelVoiceJoin(v.GuildID, v.ChannelID, false, false)
 				if err != nil {
 					log.Printf("Error joining voice channel: %v", err)
 				} else {
 					log.Printf("Bot successfully joined %s voice channel", channel.Name)
+					if vc != nil {
+						time.Sleep(1 * time.Second)
+					}
 				}
 			}
 		} else {
 			// Master user left voice - bot should return to default channel
 			log.Printf("Master user left voice, bot returning to default channel...")
 			if defaultVoiceChannelID != "" && serverID != "" {
-				_, err := s.ChannelVoiceJoin(serverID, defaultVoiceChannelID, false, true)
+				vc, err := s.ChannelVoiceJoin(serverID, defaultVoiceChannelID, false, false)
 				if err != nil {
 					log.Printf("Error returning to default voice channel: %v", err)
 				} else {
 					log.Printf("Bot successfully returned to default voice channel")
+					if vc != nil {
+						time.Sleep(1 * time.Second)
+					}
 				}
 			}
 		}
