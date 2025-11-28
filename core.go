@@ -16,12 +16,16 @@ import (
 
 var eventServiceURL string
 var masterUserID string
+var defaultVoiceChannelID string
+var serverID string
 
 // RunCoreLogic represents the persistent core functionality of the service.
 // It connects to Discord and manages the session with automatic reconnection.
-func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser string) error {
+func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultChannel, guildID string) error {
 	eventServiceURL = serviceURL
 	masterUserID = masterUser
+	defaultVoiceChannelID = defaultChannel
+	serverID = guildID
 
 	// Initialize Discord session
 	dg, err := discordgo.New("Bot " + token)
@@ -134,6 +138,17 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 	if err := s.UpdateGameStatus(0, "Listening for events..."); err != nil {
 		log.Printf("Error updating game status: %v", err)
 	}
+
+	// Join the default voice channel on boot
+	if defaultVoiceChannelID != "" && serverID != "" {
+		log.Printf("Joining default voice channel...")
+		_, err := s.ChannelVoiceJoin(serverID, defaultVoiceChannelID, false, true)
+		if err != nil {
+			log.Printf("Error joining default voice channel: %v", err)
+		} else {
+			log.Printf("Bot successfully joined default voice channel")
+		}
+	}
 }
 
 // messageCreate is called every time a new message is created on any channel.
@@ -187,15 +202,14 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 				}
 			}
 		} else {
-			// Master user left voice - bot should leave too
-			log.Printf("Master user left voice, bot disconnecting...")
-			// We need to find which guild to disconnect from
-			// The bot can only be in one voice channel at a time, so we disconnect from all
-			for _, vs := range s.VoiceConnections {
-				if err := vs.Disconnect(); err != nil {
-					log.Printf("Error disconnecting from voice: %v", err)
+			// Master user left voice - bot should return to default channel
+			log.Printf("Master user left voice, bot returning to default channel...")
+			if defaultVoiceChannelID != "" && serverID != "" {
+				_, err := s.ChannelVoiceJoin(serverID, defaultVoiceChannelID, false, true)
+				if err != nil {
+					log.Printf("Error returning to default voice channel: %v", err)
 				} else {
-					log.Printf("Bot successfully disconnected from voice")
+					log.Printf("Bot successfully returned to default voice channel")
 				}
 			}
 		}
