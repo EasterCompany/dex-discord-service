@@ -114,7 +114,7 @@ func main() {
 	// Start the core event logic in a goroutine
 	go func() {
 		log.Println("Core Logic: Starting...")
-		if err := RunCoreLogic(ctx, discordToken, eventServiceURL); err != nil {
+		if err := RunCoreLogic(ctx, discordToken, eventServiceURL, options.Discord.MasterDiscordUser); err != nil {
 			log.Printf("Core Logic Error: %v", err)
 			// Trigger shutdown if core logic fails
 			cancel()

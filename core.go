@@ -15,11 +15,13 @@ import (
 )
 
 var eventServiceURL string
+var masterUserID string
 
 // RunCoreLogic represents the persistent core functionality of the service.
 // It connects to Discord and manages the session with automatic reconnection.
-func RunCoreLogic(ctx context.Context, token, serviceURL string) error {
+func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser string) error {
 	eventServiceURL = serviceURL
+	masterUserID = masterUser
 
 	// Initialize Discord session
 	dg, err := discordgo.New("Bot " + token)
@@ -33,6 +35,11 @@ func RunCoreLogic(ctx context.Context, token, serviceURL string) error {
 			log.Printf("Error closing Discord session: %v", err)
 		}
 	}()
+
+	// Set intents - need voice states to track voice channel activity
+	dg.Identify.Intents = discordgo.IntentsGuildMessages |
+		discordgo.IntentsGuildVoiceStates |
+		discordgo.IntentsGuildMembers
 
 	// Add handlers for Discord events
 	dg.AddHandler(ready)
@@ -161,6 +168,37 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 	if err != nil {
 		log.Printf("Error getting user: %v", err)
 		return
+	}
+
+	// Check if this is the master user and handle bot following
+	if v.UserID == masterUserID {
+		if v.ChannelID != "" {
+			// Master user joined a voice channel - bot should join too
+			channel, err := s.Channel(v.ChannelID)
+			if err != nil {
+				log.Printf("Error getting channel for bot to join: %v", err)
+			} else {
+				log.Printf("Master user joined %s, bot following...", channel.Name)
+				_, err := s.ChannelVoiceJoin(v.GuildID, v.ChannelID, false, true)
+				if err != nil {
+					log.Printf("Error joining voice channel: %v", err)
+				} else {
+					log.Printf("Bot successfully joined %s voice channel", channel.Name)
+				}
+			}
+		} else {
+			// Master user left voice - bot should leave too
+			log.Printf("Master user left voice, bot disconnecting...")
+			// We need to find which guild to disconnect from
+			// The bot can only be in one voice channel at a time, so we disconnect from all
+			for _, vs := range s.VoiceConnections {
+				if err := vs.Disconnect(); err != nil {
+					log.Printf("Error disconnecting from voice: %v", err)
+				} else {
+					log.Printf("Bot successfully disconnected from voice")
+				}
+			}
+		}
 	}
 
 	var newStatus string

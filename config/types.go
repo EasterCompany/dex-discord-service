@@ -43,9 +43,10 @@ type OptionsConfig struct {
 
 // DiscordOptions holds Discord-specific settings
 type DiscordOptions struct {
-	Token          string `json:"token"`
-	ServerID       string `json:"server_id"`
-	DebugChannelID string `json:"debug_channel_id"`
+	Token             string `json:"token"`
+	ServerID          string `json:"server_id"`
+	DebugChannelID    string `json:"debug_channel_id"`
+	MasterDiscordUser string `json:"master_discord_user"`
 }
 
 // SystemConfig represents the structure of system.json
