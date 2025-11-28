@@ -92,7 +92,7 @@ func RunCoreLogic(ctx context.Context, token, serviceURL string) error {
 
 		// Announce connection to the event service
 		log.Println("Core Logic: Announcing connection to event service...")
-		if err := sendEvent("connected", "Discord service successfully connected and is online."); err != nil {
+		if err := sendEvent("status_change", "Discord service successfully connected and is online.", "connected"); err != nil {
 			log.Printf("Warning: Failed to announce connection to event service: %v", err)
 			// Non-fatal, so we continue
 		}
@@ -132,7 +132,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 	message := fmt.Sprintf("%s user posted in %s channel: %s", m.Author.Username, channel.Name, m.Content)
-	if err := sendEvent("message_posted", message); err != nil {
+	if err := sendEvent("message_received", message, "discord_message"); err != nil {
 		log.Printf("Error sending event: %v", err)
 	}
 }
@@ -156,7 +156,7 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 		message = fmt.Sprintf("%s user disconnected from voice", user.Username)
 	}
 
-	if err := sendEvent("voice_state_update", message); err != nil {
+	if err := sendEvent("status_change", message, "voice_state"); err != nil {
 		log.Printf("Error sending event: %v", err)
 	}
 }
@@ -169,17 +169,18 @@ func guildMemberAdd(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
 		return
 	}
 	message := fmt.Sprintf("%s user has joined the %s server", m.User.Username, guild.Name)
-	if err := sendEvent("user_joined_server", message); err != nil {
+	if err := sendEvent("status_change", message, "member_joined"); err != nil {
 		log.Printf("Error sending event: %v", err)
 	}
 }
 
 // sendEvent sends an event to the event service with retry logic.
-func sendEvent(eventType, message string) error {
+func sendEvent(eventType, message, subType string) error {
 	// Create the event data that will be stored
 	eventData := map[string]interface{}{
-		"type":    eventType,
-		"message": message,
+		"type":     eventType,
+		"message":  message,
+		"sub_type": subType,
 	}
 
 	eventJSON, err := json.Marshal(eventData)
