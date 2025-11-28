@@ -176,15 +176,26 @@ func guildMemberAdd(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
 
 // sendEvent sends an event to the event service with retry logic.
 func sendEvent(eventType, message string) error {
-	event := map[string]interface{}{
-		"source":  "dex-discord-service",
+	// Create the event data that will be stored
+	eventData := map[string]interface{}{
 		"type":    eventType,
 		"message": message,
 	}
 
-	body, err := json.Marshal(event)
+	eventJSON, err := json.Marshal(eventData)
 	if err != nil {
-		return fmt.Errorf("failed to marshal event: %w", err)
+		return fmt.Errorf("failed to marshal event data: %w", err)
+	}
+
+	// Wrap in the CreateEventRequest structure
+	request := map[string]interface{}{
+		"service": "dex-discord-service",
+		"event":   json.RawMessage(eventJSON),
+	}
+
+	body, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	// Retry logic with exponential backoff
