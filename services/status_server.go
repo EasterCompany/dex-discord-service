@@ -85,7 +85,8 @@ func (ss *StatusServer) handleStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleService returns service information in standardized format
+// handleService returns the UNIVERSAL service status endpoint.
+// This endpoint MUST return the standard structure used by ALL Dexter services.
 func (ss *StatusServer) handleService(w http.ResponseWriter, r *http.Request) {
 	// Support ?format=version for simple version string
 	if r.URL.Query().Get("format") == "version" {
@@ -124,7 +125,7 @@ func (ss *StatusServer) handleService(w http.ResponseWriter, r *http.Request) {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
 
-	// Standard service response format (matches dex-event-service)
+	// UNIVERSAL service response format - ALL Dexter services MUST use this structure
 	response := map[string]interface{}{
 		"version": map[string]interface{}{
 			"str": ss.version,
@@ -136,15 +137,17 @@ func (ss *StatusServer) handleService(w http.ResponseWriter, r *http.Request) {
 			"message": "Service is running normally",
 		},
 		"metrics": map[string]interface{}{
+			// Discord-specific metrics
 			"messages_processed": ss.messagesProcessed.Load(),
 			"events_processed":   ss.eventsProcessed.Load(),
 			"snapshots_captured": ss.snapshotsCaptured.Load(),
 			"voice_connections":  ss.voiceConnections.Load(),
-			"goroutines":         runtime.NumGoroutine(),
-			"memory_alloc_mb":    float64(m.Alloc) / 1024 / 1024,
-			"memory_total_mb":    float64(m.TotalAlloc) / 1024 / 1024,
-			"memory_sys_mb":      float64(m.Sys) / 1024 / 1024,
-			"gc_runs":            m.NumGC,
+			// Runtime metrics
+			"goroutines":      runtime.NumGoroutine(),
+			"memory_alloc_mb": float64(m.Alloc) / 1024 / 1024,
+			"memory_total_mb": float64(m.TotalAlloc) / 1024 / 1024,
+			"memory_sys_mb":   float64(m.Sys) / 1024 / 1024,
+			"gc_runs":         m.NumGC,
 		},
 	}
 
