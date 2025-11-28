@@ -80,15 +80,16 @@ func main() {
 		log.Fatalf("FATAL: Invalid port '%s' for service '%s' in service-map.json: %v", selfConfig.Port, ServiceName, err)
 	}
 
-	// Extract Discord token from credentials
-	var discordToken string
-	if creds, ok := selfConfig.Credentials.(map[string]interface{}); ok {
-		if token, found := creds["token"].(string); found {
-			discordToken = token
-		}
+	// Load options.json to get Discord configuration
+	options, err := config.LoadOptions()
+	if err != nil {
+		log.Fatalf("FATAL: Could not load options.json: %v", err)
 	}
+
+	// Extract Discord token from options
+	discordToken := options.Discord.Token
 	if discordToken == "" {
-		log.Fatalf("FATAL: Discord token not found or invalid in service-map.json for service '%s'", ServiceName)
+		log.Fatalf("FATAL: Discord token not found or invalid in options.json")
 	}
 
 	// Find the event service configuration from the service map
