@@ -92,7 +92,16 @@ func RunCoreLogic(ctx context.Context, token, serviceURL string) error {
 
 		// Announce connection to the event service
 		log.Println("Core Logic: Announcing connection to event service...")
-		if err := sendEvent("status_change", "Discord service successfully connected and is online.", "connected"); err != nil {
+		// Send connection event
+		connectionEvent := map[string]interface{}{
+			"type":       "status_change",
+			"entity":     "dex-discord-service",
+			"new_status": "connected",
+			"metadata": map[string]interface{}{
+				"message": "Discord service successfully connected and is online.",
+			},
+		}
+		if err := sendEventData("status_change", connectionEvent); err != nil {
 			log.Printf("Warning: Failed to announce connection to event service: %v", err)
 			// Non-fatal, so we continue
 		}
@@ -131,8 +140,17 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		log.Printf("Error getting channel: %v", err)
 		return
 	}
-	message := fmt.Sprintf("%s user posted in %s channel: %s", m.Author.Username, channel.Name, m.Content)
-	if err := sendEvent("message_received", message, "discord_message"); err != nil {
+
+	eventData := map[string]interface{}{
+		"type":       "message_received",
+		"user":       m.Author.Username,
+		"user_id":    m.Author.ID,
+		"message":    m.Content,
+		"channel":    channel.Name,
+		"channel_id": m.ChannelID,
+	}
+
+	if err := sendEventData("message_received", eventData); err != nil {
 		log.Printf("Error sending event: %v", err)
 	}
 }
@@ -144,19 +162,34 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 		log.Printf("Error getting user: %v", err)
 		return
 	}
-	var message string
+
+	var newStatus string
+	var channelName string
 	if v.ChannelID != "" {
 		channel, err := s.Channel(v.ChannelID)
 		if err != nil {
 			log.Printf("Error getting channel: %v", err)
 			return
 		}
-		message = fmt.Sprintf("%s user joined %s voice channel", user.Username, channel.Name)
+		newStatus = "joined"
+		channelName = channel.Name
 	} else {
-		message = fmt.Sprintf("%s user disconnected from voice", user.Username)
+		newStatus = "disconnected"
+		channelName = "voice"
 	}
 
-	if err := sendEvent("status_change", message, "voice_state"); err != nil {
+	eventData := map[string]interface{}{
+		"type":       "status_change",
+		"entity":     user.Username,
+		"entity_id":  v.UserID,
+		"new_status": newStatus,
+		"metadata": map[string]interface{}{
+			"channel":    channelName,
+			"channel_id": v.ChannelID,
+		},
+	}
+
+	if err := sendEventData("status_change", eventData); err != nil {
 		log.Printf("Error sending event: %v", err)
 	}
 }
@@ -168,21 +201,25 @@ func guildMemberAdd(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
 		log.Printf("Error getting guild: %v", err)
 		return
 	}
-	message := fmt.Sprintf("%s user has joined the %s server", m.User.Username, guild.Name)
-	if err := sendEvent("status_change", message, "member_joined"); err != nil {
+
+	eventData := map[string]interface{}{
+		"type":       "status_change",
+		"entity":     m.User.Username,
+		"entity_id":  m.User.ID,
+		"new_status": "joined",
+		"metadata": map[string]interface{}{
+			"server":    guild.Name,
+			"server_id": m.GuildID,
+		},
+	}
+
+	if err := sendEventData("status_change", eventData); err != nil {
 		log.Printf("Error sending event: %v", err)
 	}
 }
 
-// sendEvent sends an event to the event service with retry logic.
-func sendEvent(eventType, message, subType string) error {
-	// Create the event data that will be stored
-	eventData := map[string]interface{}{
-		"type":     eventType,
-		"message":  message,
-		"sub_type": subType,
-	}
-
+// sendEventData sends an event to the event service with retry logic.
+func sendEventData(eventType string, eventData map[string]interface{}) error {
 	eventJSON, err := json.Marshal(eventData)
 	if err != nil {
 		return fmt.Errorf("failed to marshal event data: %w", err)
