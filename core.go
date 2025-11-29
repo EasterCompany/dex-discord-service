@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -33,11 +36,12 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 	serverID = guildID
 
 	// Initialize voice recorder
-	voiceRecorder = audio.NewVoiceRecorder()
-
-	// Ensure data directory exists
-	if err := audio.EnsureDataDir(); err != nil {
-		log.Printf("Warning: Failed to create data directory: %v", err)
+	var err error
+	voiceRecorder, err = audio.NewVoiceRecorder(ctx)
+	if err != nil {
+		log.Printf("FATAL: Error creating voice recorder: %v", err)
+		utils.SetHealthStatus("ERROR", "Failed to create voice recorder")
+		return err
 	}
 
 	// Initialize Discord session
@@ -222,11 +226,38 @@ func setupVoiceReceivers(vc *discordgo.VoiceConnection) {
 			if err := voiceRecorder.StartRecording(vs.UserID, vc.ChannelID); err != nil {
 				log.Printf("Error starting recording for user %s: %v", vs.UserID, err)
 			}
+
+			// Emit voice_speaking_started event
+			eventData := map[string]interface{}{
+				"type":       "voice_speaking_started",
+				"user_id":    vs.UserID,
+				"channel_id": vc.ChannelID,
+			}
+			if err := sendEventData("voice_speaking_started", eventData); err != nil {
+				log.Printf("Error sending voice_speaking_started event: %v", err)
+			}
 		} else {
 			// User stopped speaking - save the recording snapshot
 			log.Printf("User %s (SSRC %d) stopped speaking in channel %s", vs.UserID, vs.SSRC, vc.ChannelID)
-			if err := voiceRecorder.StopRecording(vs.UserID); err != nil {
+			redisKey, err := voiceRecorder.StopRecording(vs.UserID)
+			if err != nil {
 				log.Printf("Error stopping recording for user %s: %v", vs.UserID, err)
+			}
+
+			// Emit voice_speaking_stopped event with Redis key
+			eventData := map[string]interface{}{
+				"type":       "voice_speaking_stopped",
+				"user_id":    vs.UserID,
+				"channel_id": vc.ChannelID,
+				"redis_key":  redisKey,
+			}
+			if err := sendEventData("voice_speaking_stopped", eventData); err != nil {
+				log.Printf("Error sending voice_speaking_stopped event: %v", err)
+			}
+
+			// If we have audio, transcribe it
+			if redisKey != "" {
+				go transcribeAudio(vs.UserID, vc.ChannelID, redisKey)
 			}
 		}
 	})
@@ -422,4 +453,44 @@ func sendEventData(eventType string, eventData map[string]interface{}) error {
 	}
 
 	return fmt.Errorf("failed to send event after %d attempts", maxRetries+1)
+}
+
+// transcribeAudio retrieves audio from Redis, transcribes it using dex whisper, and emits a voice_transcribed event
+func transcribeAudio(userID, channelID, redisKey string) {
+	log.Printf("Starting transcription for user %s, redis key: %s", userID, redisKey)
+
+	// Get audio data from Redis
+	ctx := context.Background()
+	audioData, err := voiceRecorder.GetRedis().Get(ctx, redisKey).Bytes()
+	if err != nil {
+		log.Printf("Error getting audio from Redis for transcription: %v", err)
+		return
+	}
+
+	// Encode audio to base64
+	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
+
+	// Call dex whisper transcribe
+	cmd := exec.Command("dex", "whisper", "transcribe", "-b", audioBase64)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		log.Printf("Error transcribing audio: %v, output: %s", err, string(output))
+		return
+	}
+
+	// Extract transcription text
+	transcription := strings.TrimSpace(string(output))
+	log.Printf("Transcription complete for user %s: %s", userID, transcription)
+
+	// Emit voice_transcribed event
+	eventData := map[string]interface{}{
+		"type":          "voice_transcribed",
+		"user_id":       userID,
+		"channel_id":    channelID,
+		"transcription": transcription,
+		"redis_key":     redisKey,
+	}
+	if err := sendEventData("voice_transcribed", eventData); err != nil {
+		log.Printf("Error sending voice_transcribed event: %v", err)
+	}
 }

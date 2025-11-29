@@ -1,15 +1,16 @@
 package audio
 
 import (
+	"bytes"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/redis/go-redis/v9"
 	"layeh.com/gopus"
 )
 
@@ -36,14 +37,24 @@ type VoiceRecorder struct {
 	ssrcToUser       map[string]map[uint32]string // maps channelID -> SSRC -> userID
 	currentChannelID string                       // currently active channel
 	mutex            sync.RWMutex
+	redisClient      *redis.Client   // Redis client for storing audio
+	ctx              context.Context // Context for Redis operations
 }
 
 // NewVoiceRecorder creates a new voice recorder instance
-func NewVoiceRecorder() *VoiceRecorder {
-	return &VoiceRecorder{
-		recordings: make(map[string]*UserRecording),
-		ssrcToUser: make(map[string]map[uint32]string),
+func NewVoiceRecorder(ctx context.Context) (*VoiceRecorder, error) {
+	// Initialize Redis client
+	redisClient, err := GetRedisClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize Redis client: %w", err)
 	}
+
+	return &VoiceRecorder{
+		recordings:  make(map[string]*UserRecording),
+		ssrcToUser:  make(map[string]map[uint32]string),
+		redisClient: redisClient,
+		ctx:         ctx,
+	}, nil
 }
 
 // StartRecording begins recording for a user
@@ -76,13 +87,14 @@ func (vr *VoiceRecorder) StartRecording(userID, channelID string) error {
 	return nil
 }
 
-// StopRecording stops recording for a user and saves the audio file
-func (vr *VoiceRecorder) StopRecording(userID string) error {
+// StopRecording stops recording for a user and saves the audio to Redis
+// Returns the Redis key for the audio data, or empty string if no recording was saved
+func (vr *VoiceRecorder) StopRecording(userID string) (string, error) {
 	vr.mutex.Lock()
 	recording, exists := vr.recordings[userID]
 	if !exists {
 		vr.mutex.Unlock()
-		return nil // Not recording
+		return "", nil // Not recording
 	}
 	delete(vr.recordings, userID)
 	vr.mutex.Unlock()
@@ -92,16 +104,17 @@ func (vr *VoiceRecorder) StopRecording(userID string) error {
 	// Don't save if buffer is empty or recording was too short
 	if len(recording.Buffer) == 0 || (stopTime-recording.StartTime) < 1 {
 		log.Printf("Skipping save for user %s: recording too short or empty", userID)
-		return nil
+		return "", nil
 	}
 
-	// Save the audio file
-	if err := vr.saveRecording(recording, stopTime); err != nil {
-		return fmt.Errorf("failed to save recording: %w", err)
+	// Save the audio to Redis
+	redisKey, err := vr.saveRecordingToRedis(recording, stopTime)
+	if err != nil {
+		return "", fmt.Errorf("failed to save recording to Redis: %w", err)
 	}
 
-	log.Printf("Stopped and saved recording for user %s", userID)
-	return nil
+	log.Printf("Stopped and saved recording for user %s to Redis key %s", userID, redisKey)
+	return redisKey, nil
 }
 
 // SetCurrentChannel updates the current channel ID
@@ -163,7 +176,7 @@ func (vr *VoiceRecorder) StopAllRecordings() {
 
 	// Stop each recording (this will handle the mutex internally)
 	for _, userID := range userIDs {
-		if err := vr.StopRecording(userID); err != nil {
+		if _, err := vr.StopRecording(userID); err != nil {
 			log.Printf("Error stopping recording for user %s: %v", userID, err)
 		}
 	}
@@ -207,42 +220,38 @@ func (vr *VoiceRecorder) ProcessVoicePacket(ssrc uint32, packet *discordgo.Packe
 	return nil
 }
 
-// saveRecording saves the recorded audio to a WAV file
-func (vr *VoiceRecorder) saveRecording(recording *UserRecording, stopTime int64) error {
-	// Get the full file path
-	filePath, err := GetAudioFilePath(recording.StartTime, stopTime, recording.UserID, recording.ChannelID)
-	if err != nil {
-		return err
-	}
-
-	// Create WAV file
-	file, err := os.Create(filePath)
-	if err != nil {
-		return fmt.Errorf("failed to create audio file: %w", err)
-	}
-	defer func() {
-		if cerr := file.Close(); cerr != nil {
-			log.Printf("Error closing audio file: %v", cerr)
-		}
-	}()
+// saveRecordingToRedis saves the recorded audio to Redis as a WAV file in bytes
+// Returns the Redis key where the audio is stored
+func (vr *VoiceRecorder) saveRecordingToRedis(recording *UserRecording, stopTime int64) (string, error) {
+	// Create a buffer to write the WAV file
+	var buf bytes.Buffer
 
 	// Write WAV header
-	if err := writeWAVHeader(file, len(recording.Buffer)); err != nil {
-		return fmt.Errorf("failed to write WAV header: %w", err)
+	if err := writeWAVHeaderToBuffer(&buf, len(recording.Buffer)); err != nil {
+		return "", fmt.Errorf("failed to write WAV header: %w", err)
 	}
 
 	// Write PCM data
-	if err := binary.Write(file, binary.LittleEndian, recording.Buffer); err != nil {
-		return fmt.Errorf("failed to write audio data: %w", err)
+	if err := binary.Write(&buf, binary.LittleEndian, recording.Buffer); err != nil {
+		return "", fmt.Errorf("failed to write audio data: %w", err)
+	}
+
+	// Generate Redis key: discord-audio:{startTime}-{stopTime}-{userID}-{channelID}
+	redisKey := fmt.Sprintf("discord-audio:%d-%d-%s-%s", recording.StartTime, stopTime, recording.UserID, recording.ChannelID)
+
+	// Save to Redis with 1 hour expiration
+	err := vr.redisClient.Set(vr.ctx, redisKey, buf.Bytes(), 1*time.Hour).Err()
+	if err != nil {
+		return "", fmt.Errorf("failed to save to Redis: %w", err)
 	}
 
 	duration := float64(stopTime - recording.StartTime)
-	log.Printf("Saved audio file: %s (%.2f seconds, %d samples)", filepath.Base(filePath), duration, len(recording.Buffer))
-	return nil
+	log.Printf("Saved audio to Redis: %s (%.2f seconds, %d samples, %d bytes)", redisKey, duration, len(recording.Buffer), buf.Len())
+	return redisKey, nil
 }
 
-// writeWAVHeader writes a WAV file header
-func writeWAVHeader(file *os.File, samples int) error {
+// writeWAVHeaderToBuffer writes a WAV file header to a bytes buffer
+func writeWAVHeaderToBuffer(buf *bytes.Buffer, samples int) error {
 	// WAV file header
 	dataSize := samples * 2 // 16-bit samples
 	fileSize := 36 + dataSize
@@ -268,7 +277,7 @@ func writeWAVHeader(file *os.File, samples int) error {
 	copy(header[36:40], "data")
 	binary.LittleEndian.PutUint32(header[40:44], uint32(dataSize))
 
-	_, err := file.Write(header)
+	_, err := buf.Write(header)
 	return err
 }
 
@@ -277,4 +286,9 @@ func (vr *VoiceRecorder) GetActiveRecordings() int {
 	vr.mutex.RLock()
 	defer vr.mutex.RUnlock()
 	return len(vr.recordings)
+}
+
+// GetRedis returns the Redis client for external access
+func (vr *VoiceRecorder) GetRedis() *redis.Client {
+	return vr.redisClient
 }
