@@ -38,7 +38,7 @@ func GetRedisClient(ctx context.Context) (*redis.Client, error) {
 		return nil, fmt.Errorf("failed to get home directory: %w", err)
 	}
 
-	serviceMapPath := filepath.Join(home, "Dexter", "service-map.json")
+	serviceMapPath := filepath.Join(home, "Dexter", "config", "service-map.json")
 	data, err := os.ReadFile(serviceMapPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read service-map.json: %w", err)
