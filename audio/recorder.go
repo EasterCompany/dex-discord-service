@@ -239,8 +239,8 @@ func (vr *VoiceRecorder) saveRecordingToRedis(recording *UserRecording, stopTime
 	// Generate Redis key: discord-audio:{startTime}-{stopTime}-{userID}-{channelID}
 	redisKey := fmt.Sprintf("discord-audio:%d-%d-%s-%s", recording.StartTime, stopTime, recording.UserID, recording.ChannelID)
 
-	// Save to Redis with 1 hour expiration
-	err := vr.redisClient.Set(vr.ctx, redisKey, buf.Bytes(), 1*time.Hour).Err()
+	// Save to Redis with 60 second expiration
+	err := vr.redisClient.Set(vr.ctx, redisKey, buf.Bytes(), 60*time.Second).Err()
 	if err != nil {
 		return "", fmt.Errorf("failed to save to Redis: %w", err)
 	}

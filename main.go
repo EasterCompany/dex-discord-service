@@ -132,6 +132,9 @@ func main() {
 	// /post endpoint is protected by auth middleware
 	mux.HandleFunc("/post", middleware.ServiceAuthMiddleware(endpoints.PostHandler))
 
+	// /audio endpoint is public
+	mux.HandleFunc("/audio/", endpoints.AudioHandler)
+
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
 		Handler:      middleware.CorsMiddleware(mux),

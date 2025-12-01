@@ -341,10 +341,11 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 	}
 
 	transcription := strings.TrimSpace(string(output))
-	log.Printf("Transcription for %s: %s", userID, transcription)
 
 	user, _ := s.User(userID)
 	channel, _ := s.Channel(channelID)
+
+	log.Printf("user %s in channel %s said: %s", user.Username, channel.Name, transcription)
 
 	event := utils.UserTranscribedEvent{
 		GenericMessagingEvent: utils.GenericMessagingEvent{
