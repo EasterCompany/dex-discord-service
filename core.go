@@ -27,15 +27,13 @@ var voiceRecorder *audio.VoiceRecorder
 var activeVoiceConnection *discordgo.VoiceConnection
 var voiceConnectionMutex sync.Mutex
 
-// RunCoreLogic represents the persistent core functionality of the service.
-// It connects to Discord and manages the session with automatic reconnection.
+// RunCoreLogic manages the Discord session and its event handlers.
 func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultChannel, guildID string) error {
 	eventServiceURL = serviceURL
 	masterUserID = masterUser
 	defaultVoiceChannelID = defaultChannel
 	serverID = guildID
 
-	// Initialize voice recorder
 	var err error
 	voiceRecorder, err = audio.NewVoiceRecorder(ctx)
 	if err != nil {
@@ -44,11 +42,9 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 		return err
 	}
 
-	// Initialize Discord session
 	dg, err := discordgo.New("Bot " + token)
 	if err != nil {
 		log.Printf("FATAL: Error creating Discord session: %v", err)
-		utils.SetHealthStatus("ERROR", "Failed to create Discord session")
 		return err
 	}
 	defer func() {
@@ -57,420 +53,275 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 		}
 	}()
 
-	// Set intents - need voice states to track voice channel activity
-	dg.Identify.Intents = discordgo.IntentsGuildMessages |
-		discordgo.IntentsGuildVoiceStates |
-		discordgo.IntentsGuildMembers
-
-	// Configure voice settings
+	dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsGuildVoiceStates | discordgo.IntentsGuildMembers
 	dg.ShouldReconnectOnError = true
 
-	// Add handlers for Discord events
 	dg.AddHandler(ready)
 	dg.AddHandler(messageCreate)
 	dg.AddHandler(voiceStateUpdate)
 	dg.AddHandler(guildMemberAdd)
-
-	// Add disconnect handler for reconnection tracking
 	dg.AddHandler(func(s *discordgo.Session, d *discordgo.Disconnect) {
 		log.Printf("Discord disconnected, will attempt to reconnect...")
 		utils.IncrementReconnects()
 		utils.SetHealthStatus("RECONNECTING", "Discord connection lost, reconnecting...")
 	})
-
-	// Add resume handler
 	dg.AddHandler(func(s *discordgo.Session, r *discordgo.Resumed) {
 		log.Printf("Discord connection resumed")
 		utils.SetHealthStatus("OK", "Service is running and connected to Discord")
 	})
 
-	// Reconnection loop
-	reconnectDelay := 5 * time.Second
-	maxReconnectDelay := 5 * time.Minute
-
 	for {
-		// Check if context is cancelled
 		select {
 		case <-ctx.Done():
-			log.Println("Core Logic: Shutdown signal received, closing Discord connection...")
-			utils.SetHealthStatus("SHUTTING_DOWN", "Service is shutting down")
 			return nil
 		default:
 		}
-
-		// Attempt to open connection
 		if err := dg.Open(); err != nil {
 			log.Printf("Error opening Discord connection: %v", err)
-			utils.SetHealthStatus("ERROR", fmt.Sprintf("Failed to connect to Discord: %v", err))
-			utils.IncrementReconnects()
-
-			// Wait before retrying
-			log.Printf("Retrying connection in %v...", reconnectDelay)
-			select {
-			case <-time.After(reconnectDelay):
-				// Exponential backoff with max cap
-				reconnectDelay *= 2
-				if reconnectDelay > maxReconnectDelay {
-					reconnectDelay = maxReconnectDelay
-				}
-				continue
-			case <-ctx.Done():
-				log.Println("Core Logic: Shutdown signal received during reconnection")
-				utils.SetHealthStatus("SHUTTING_DOWN", "Service is shutting down")
-				return nil
-			}
+			time.Sleep(15 * time.Second) // Wait before retrying
+			continue
 		}
 
-		// Announce connection to the event service
 		log.Println("Core Logic: Announcing connection to event service...")
-		// Send connection event
-		connectionEvent := map[string]interface{}{
-			"type":       "status_change",
-			"entity":     "dex-discord-service",
-			"new_status": "connected",
-			"metadata": map[string]interface{}{
-				"message": "Discord service successfully connected and is online.",
-			},
+		connectionEvent := utils.BotStatusUpdateEvent{
+			Type:      utils.EventTypeMessagingBotStatusUpdate,
+			Source:    "discord",
+			Status:    "connected",
+			Details:   "Discord service successfully connected and is online.",
+			Timestamp: time.Now(),
 		}
-		if err := sendEventData("status_change", connectionEvent); err != nil {
-			log.Printf("Warning: Failed to announce connection to event service: %v", err)
-			// Non-fatal, so we continue
+		if err := sendEventData(connectionEvent); err != nil {
+			log.Printf("Warning: Failed to announce connection: %v", err)
 		}
 
-		// Mark service as healthy
 		utils.SetHealthStatus("OK", "Service is running and connected to Discord")
-		log.Println("Core Logic: Discord connection established, service is healthy.")
-
-		// Set the Discord session for the post endpoint
 		endpoints.SetDiscordSession(dg)
 
-		// Wait for context cancellation or session close
 		<-ctx.Done()
-		log.Println("Core Logic: Shutdown signal received, closing Discord connection...")
-		utils.SetHealthStatus("SHUTTING_DOWN", "Service is shutting down")
 		return nil
 	}
 }
 
-// ready is called when the bot is ready to start interacting with Discord.
 func ready(s *discordgo.Session, event *discordgo.Ready) {
 	log.Printf("Logged in as %s#%s", s.State.User.Username, s.State.User.Discriminator)
 	if err := s.UpdateGameStatus(0, "Listening for events..."); err != nil {
 		log.Printf("Error updating game status: %v", err)
 	}
-
-	// Join the default voice channel on boot
 	if defaultVoiceChannelID != "" && serverID != "" {
 		log.Printf("Joining default voice channel...")
-		_, err := joinOrMoveToVoiceChannel(s, serverID, defaultVoiceChannelID)
-		if err != nil {
+		if _, err := joinOrMoveToVoiceChannel(s, serverID, defaultVoiceChannelID); err != nil {
 			log.Printf("Error joining default voice channel: %v", err)
-		} else {
-			log.Printf("Bot successfully joined default voice channel")
-			time.Sleep(1 * time.Second) // Give it time to connect
 		}
 	}
 }
 
-// joinOrMoveToVoiceChannel joins a voice channel or moves to a new one, reusing the connection
 func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (*discordgo.VoiceConnection, error) {
 	voiceConnectionMutex.Lock()
 	defer voiceConnectionMutex.Unlock()
 
-	// If we already have an active connection, check if we need to move
-	if activeVoiceConnection != nil {
-		// Check if we're already in the target channel
-		if activeVoiceConnection.ChannelID == channelID {
-			log.Printf("Already in voice channel %s, reusing connection", channelID)
-			return activeVoiceConnection, nil
-		}
-
-		// We're moving to a new channel - save any active recordings
-		log.Printf("Moving voice connection from %s to %s", activeVoiceConnection.ChannelID, channelID)
-		log.Printf("Stopping all active recordings before channel move...")
-		voiceRecorder.StopAllRecordings()
-		// Note: We keep SSRC mappings per channel, so we don't clear them
-		// This way if we return to a previous channel, the mappings might still be valid
+	if activeVoiceConnection != nil && activeVoiceConnection.ChannelID == channelID {
+		return activeVoiceConnection, nil
 	}
 
-	// Join the channel (or move if we already have a connection)
-	// mute=true (bot won't send audio), deaf=false (bot can receive audio)
+	if activeVoiceConnection != nil {
+		log.Printf("Moving voice connection to %s", channelID)
+		voiceRecorder.StopAllRecordings()
+	}
+
 	vc, err := s.ChannelVoiceJoin(guildID, channelID, true, false)
 	if err != nil {
 		return nil, err
 	}
 
-	// Update the current channel in the voice recorder
 	voiceRecorder.SetCurrentChannel(channelID)
-
-	// Set up receivers only if this is a new connection or we moved
 	if activeVoiceConnection == nil || activeVoiceConnection.ChannelID != channelID {
-		setupVoiceReceivers(vc)
+		setupVoiceReceivers(s, vc)
 	}
-
 	activeVoiceConnection = vc
 	return vc, nil
 }
 
-// setupVoiceReceivers configures the voice connection to receive and process audio packets
-func setupVoiceReceivers(vc *discordgo.VoiceConnection) {
-	// Add speaking state handler
-	// This handler fires for EVERY user in the channel, regardless of bot state
+func setupVoiceReceivers(s *discordgo.Session, vc *discordgo.VoiceConnection) {
 	vc.AddHandler(func(vc *discordgo.VoiceConnection, vs *discordgo.VoiceSpeakingUpdate) {
-		// Register SSRC to user ID mapping for this channel
 		voiceRecorder.RegisterSSRC(uint32(vs.SSRC), vs.UserID, vc.ChannelID)
 
+		user, _ := s.User(vs.UserID)
+		channel, _ := s.Channel(vc.ChannelID)
+
+		baseEvent := utils.GenericMessagingEvent{
+			Source:      "discord",
+			UserID:      vs.UserID,
+			UserName:    user.Username,
+			ChannelID:   vc.ChannelID,
+			ChannelName: channel.Name,
+			ServerID:    vc.GuildID,
+			Timestamp:   time.Now(),
+		}
+
 		if vs.Speaking {
-			// User started speaking - start recording snapshot
-			log.Printf("User %s (SSRC %d) started speaking in channel %s", vs.UserID, vs.SSRC, vc.ChannelID)
+			log.Printf("User %s started speaking.", vs.UserID)
 			if err := voiceRecorder.StartRecording(vs.UserID, vc.ChannelID); err != nil {
 				log.Printf("Error starting recording for user %s: %v", vs.UserID, err)
 			}
-
-			// Emit voice_speaking_started event
-			eventData := map[string]interface{}{
-				"type":       "voice_speaking_started",
-				"user_id":    vs.UserID,
-				"channel_id": vc.ChannelID,
-			}
-			if err := sendEventData("voice_speaking_started", eventData); err != nil {
-				log.Printf("Error sending voice_speaking_started event: %v", err)
+			event := utils.UserSpeakingEvent{GenericMessagingEvent: baseEvent, SSRC: uint32(vs.SSRC)}
+			event.Type = utils.EventTypeMessagingUserSpeakingStarted
+			if err := sendEventData(event); err != nil {
+				log.Printf("Error sending speaking started event: %v", err)
 			}
 		} else {
-			// User stopped speaking - save the recording snapshot
-			log.Printf("User %s (SSRC %d) stopped speaking in channel %s", vs.UserID, vs.SSRC, vc.ChannelID)
-			redisKey, err := voiceRecorder.StopRecording(vs.UserID)
-			if err != nil {
-				log.Printf("Error stopping recording for user %s: %v", vs.UserID, err)
+			log.Printf("User %s stopped speaking.", vs.UserID)
+			redisKey, _ := voiceRecorder.StopRecording(vs.UserID)
+			event := utils.UserSpeakingEvent{GenericMessagingEvent: baseEvent, SSRC: uint32(vs.SSRC)}
+			event.Type = utils.EventTypeMessagingUserSpeakingStopped
+			if err := sendEventData(event); err != nil {
+				log.Printf("Error sending speaking stopped event: %v", err)
 			}
-
-			// Emit voice_speaking_stopped event with Redis key
-			eventData := map[string]interface{}{
-				"type":       "voice_speaking_stopped",
-				"user_id":    vs.UserID,
-				"channel_id": vc.ChannelID,
-				"redis_key":  redisKey,
-			}
-			if err := sendEventData("voice_speaking_stopped", eventData); err != nil {
-				log.Printf("Error sending voice_speaking_stopped event: %v", err)
-			}
-
-			// If we have audio, transcribe it
 			if redisKey != "" {
-				go transcribeAudio(vs.UserID, vc.ChannelID, redisKey)
+				go transcribeAudio(s, vs.UserID, vc.ChannelID, redisKey)
 			}
 		}
 	})
 
-	// Add opus packet handler
 	go func() {
 		for p := range vc.OpusRecv {
-			if p != nil && p.Opus != nil {
-				// Process voice packet for recording
+			if p != nil {
 				if err := voiceRecorder.ProcessVoicePacket(p.SSRC, p); err != nil {
 					log.Printf("Error processing voice packet: %v", err)
 				}
 			}
 		}
 	}()
-
-	log.Println("Voice receivers configured for recording")
 }
 
-// messageCreate is called every time a new message is created on any channel.
 func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if m.Author.ID == s.State.User.ID {
 		return
 	}
 	utils.IncrementMessagesReceived()
-	channel, err := s.Channel(m.ChannelID)
-	if err != nil {
-		log.Printf("Error getting channel: %v", err)
-		return
-	}
+	channel, _ := s.Channel(m.ChannelID)
 
-	eventData := map[string]interface{}{
-		"type":       "message_received",
-		"user":       m.Author.Username,
-		"user_id":    m.Author.ID,
-		"message":    m.Content,
-		"channel":    channel.Name,
-		"channel_id": m.ChannelID,
+	event := utils.UserSentMessageEvent{
+		GenericMessagingEvent: utils.GenericMessagingEvent{
+			Type:        utils.EventTypeMessagingUserSentMessage,
+			Source:      "discord",
+			UserID:      m.Author.ID,
+			UserName:    m.Author.Username,
+			ChannelID:   m.ChannelID,
+			ChannelName: channel.Name,
+			ServerID:    m.GuildID,
+			Timestamp:   m.Timestamp,
+		},
+		MessageID: m.ID,
+		Content:   m.Content,
 	}
-
-	if err := sendEventData("message_received", eventData); err != nil {
-		log.Printf("Error sending event: %v", err)
+	if err := sendEventData(event); err != nil {
+		log.Printf("Error sending message event: %v", err)
 	}
 }
 
-// voiceStateUpdate is called every time a user joins or leaves a voice channel.
 func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 	user, err := s.User(v.UserID)
 	if err != nil {
-		log.Printf("Error getting user: %v", err)
 		return
 	}
 
-	// Check if this is the master user and handle bot following
 	if v.UserID == masterUserID {
 		if v.ChannelID != "" {
-			// Master user joined a voice channel - bot should join too
-			channel, err := s.Channel(v.ChannelID)
-			if err != nil {
-				log.Printf("Error getting channel for bot to join: %v", err)
-			} else {
-				log.Printf("Master user joined %s, bot following...", channel.Name)
-				_, err := joinOrMoveToVoiceChannel(s, v.GuildID, v.ChannelID)
-				if err != nil {
-					log.Printf("Error joining voice channel: %v", err)
-				} else {
-					log.Printf("Bot successfully joined %s voice channel", channel.Name)
-					time.Sleep(1 * time.Second)
-				}
+			if _, err := joinOrMoveToVoiceChannel(s, v.GuildID, v.ChannelID); err != nil {
+				log.Printf("Error following master user to voice channel: %v", err)
 			}
-		} else {
-			// Master user left voice - bot should return to default channel
-			log.Printf("Master user left voice, bot returning to default channel...")
-			if defaultVoiceChannelID != "" && serverID != "" {
-				_, err := joinOrMoveToVoiceChannel(s, serverID, defaultVoiceChannelID)
-				if err != nil {
-					log.Printf("Error returning to default voice channel: %v", err)
-				} else {
-					log.Printf("Bot successfully returned to default voice channel")
-					time.Sleep(1 * time.Second)
-				}
+		} else if defaultVoiceChannelID != "" && serverID != "" {
+			if _, err := joinOrMoveToVoiceChannel(s, serverID, defaultVoiceChannelID); err != nil {
+				log.Printf("Error returning bot to default voice channel: %v", err)
 			}
 		}
 	}
 
-	var newStatus string
-	var channelName string
-	if v.ChannelID != "" {
-		channel, err := s.Channel(v.ChannelID)
-		if err != nil {
-			log.Printf("Error getting channel: %v", err)
-			return
+	var eventType utils.EventType
+	channelID := v.ChannelID
+	if v.ChannelID != "" && (v.BeforeUpdate == nil || v.BeforeUpdate.ChannelID != v.ChannelID) {
+		eventType = utils.EventTypeMessagingUserJoinedVoice
+	} else if v.ChannelID == "" && v.BeforeUpdate != nil {
+		eventType = utils.EventTypeMessagingUserLeftVoice
+		channelID = v.BeforeUpdate.ChannelID
+	}
+
+	if eventType != "" {
+		channel, _ := s.Channel(channelID)
+		event := utils.UserVoiceStateChangeEvent{
+			GenericMessagingEvent: utils.GenericMessagingEvent{
+				Type:        eventType,
+				Source:      "discord",
+				UserID:      v.UserID,
+				UserName:    user.Username,
+				ChannelID:   channelID,
+				ChannelName: channel.Name,
+				ServerID:    v.GuildID,
+				Timestamp:   time.Now(),
+			},
 		}
-		channelName = channel.Name
-		newStatus = fmt.Sprintf("joined %s voice channel", channelName)
-	} else {
-		channelName = "voice"
-		newStatus = "disconnected from voice"
-	}
-
-	eventData := map[string]interface{}{
-		"type":       "status_change",
-		"entity":     user.Username,
-		"entity_id":  v.UserID,
-		"new_status": newStatus,
-		"metadata": map[string]interface{}{
-			"channel":    channelName,
-			"channel_id": v.ChannelID,
-		},
-	}
-
-	if err := sendEventData("status_change", eventData); err != nil {
-		log.Printf("Error sending event: %v", err)
+		if err := sendEventData(event); err != nil {
+			log.Printf("Error sending voice state change event: %v", err)
+		}
 	}
 }
 
-// guildMemberAdd is called every time a new user joins a guild.
 func guildMemberAdd(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
-	guild, err := s.Guild(m.GuildID)
-	if err != nil {
-		log.Printf("Error getting guild: %v", err)
-		return
-	}
-
-	eventData := map[string]interface{}{
-		"type":       "status_change",
-		"entity":     m.User.Username,
-		"entity_id":  m.User.ID,
-		"new_status": "joined",
-		"metadata": map[string]interface{}{
-			"server":    guild.Name,
-			"server_id": m.GuildID,
+	guild, _ := s.Guild(m.GuildID)
+	event := utils.UserServerEvent{
+		GenericMessagingEvent: utils.GenericMessagingEvent{
+			Type:       utils.EventTypeMessagingUserJoinedServer,
+			Source:     "discord",
+			UserID:     m.User.ID,
+			UserName:   m.User.Username,
+			ServerID:   m.GuildID,
+			ServerName: guild.Name,
+			Timestamp:  m.JoinedAt,
 		},
 	}
-
-	if err := sendEventData("status_change", eventData); err != nil {
-		log.Printf("Error sending event: %v", err)
+	if err := sendEventData(event); err != nil {
+		log.Printf("Error sending guild member add event: %v", err)
 	}
 }
 
-// sendEventData sends an event to the event service with retry logic.
-func sendEventData(eventType string, eventData map[string]interface{}) error {
+func sendEventData(eventData interface{}) error {
 	eventJSON, err := json.Marshal(eventData)
 	if err != nil {
-		return fmt.Errorf("failed to marshal event data: %w", err)
+		return fmt.Errorf("failed to marshal event: %w", err)
 	}
-
-	// Wrap in the CreateEventRequest structure
-	request := map[string]interface{}{
-		"service": "dex-discord-service",
-		"event":   json.RawMessage(eventJSON),
-	}
-
+	request := map[string]interface{}{"service": "dex-discord-service", "event": json.RawMessage(eventJSON)}
 	body, err := json.Marshal(request)
 	if err != nil {
 		return fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	// Retry logic with exponential backoff
-	maxRetries := 3
-	retryDelay := 1 * time.Second
-
-	for attempt := 0; attempt <= maxRetries; attempt++ {
+	for i := 0; i < 3; i++ {
 		resp, err := http.Post(eventServiceURL+"/events", "application/json", bytes.NewBuffer(body))
-		if err != nil {
-			if attempt < maxRetries {
-				log.Printf("Failed to send event (attempt %d/%d): %v. Retrying in %v...", attempt+1, maxRetries+1, err, retryDelay)
-				time.Sleep(retryDelay)
-				retryDelay *= 2 // Exponential backoff
-				continue
+		if err == nil {
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					log.Printf("Error closing response body: %v", err)
+				}
+			}()
+			if resp.StatusCode < 300 {
+				utils.IncrementEventsSent()
+				return nil
 			}
-			return fmt.Errorf("failed to send event after %d attempts: %w", maxRetries+1, err)
 		}
-		defer func() {
-			if cerr := resp.Body.Close(); cerr != nil {
-				log.Printf("Error closing response body: %v", cerr)
-			}
-		}()
-
-		if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-			if attempt < maxRetries {
-				log.Printf("Event service returned error status (attempt %d/%d): %s. Retrying in %v...", attempt+1, maxRetries+1, resp.Status, retryDelay)
-				time.Sleep(retryDelay)
-				retryDelay *= 2 // Exponential backoff
-				continue
-			}
-			return fmt.Errorf("event service returned error status after %d attempts: %s", maxRetries+1, resp.Status)
-		}
-
-		// Success
-		utils.IncrementEventsSent()
-		return nil
+		time.Sleep(time.Duration(i+1) * 2 * time.Second)
 	}
-
-	return fmt.Errorf("failed to send event after %d attempts", maxRetries+1)
+	return fmt.Errorf("failed to send event after multiple attempts")
 }
 
-// transcribeAudio retrieves audio from Redis, transcribes it using dex whisper, and emits a voice_transcribed event
-func transcribeAudio(userID, channelID, redisKey string) {
-	log.Printf("Starting transcription for user %s, redis key: %s", userID, redisKey)
-
-	// Get audio data from Redis
+func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 	ctx := context.Background()
 	audioData, err := voiceRecorder.GetRedis().Get(ctx, redisKey).Bytes()
 	if err != nil {
-		log.Printf("Error getting audio from Redis for transcription: %v", err)
+		log.Printf("Error getting audio from Redis: %v", err)
 		return
 	}
 
-	// Encode audio to base64
 	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
-
-	// Call dex whisper transcribe
 	cmd := exec.Command("dex", "whisper", "transcribe", "-b", audioBase64)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -478,19 +329,27 @@ func transcribeAudio(userID, channelID, redisKey string) {
 		return
 	}
 
-	// Extract transcription text
 	transcription := strings.TrimSpace(string(output))
-	log.Printf("Transcription complete for user %s: %s", userID, transcription)
+	log.Printf("Transcription for %s: %s", userID, transcription)
 
-	// Emit voice_transcribed event
-	eventData := map[string]interface{}{
-		"type":          "voice_transcribed",
-		"user_id":       userID,
-		"channel_id":    channelID,
-		"transcription": transcription,
-		"redis_key":     redisKey,
+	user, _ := s.User(userID)
+	channel, _ := s.Channel(channelID)
+
+	event := utils.UserTranscribedEvent{
+		GenericMessagingEvent: utils.GenericMessagingEvent{
+			Type:        utils.EventTypeMessagingUserTranscribed,
+			Source:      "discord",
+			UserID:      userID,
+			UserName:    user.Username,
+			ChannelID:   channelID,
+			ChannelName: channel.Name,
+			ServerID:    channel.GuildID,
+			Timestamp:   time.Now(),
+		},
+		Transcription: transcription,
+		AudioKey:      redisKey,
 	}
-	if err := sendEventData("voice_transcribed", eventData); err != nil {
-		log.Printf("Error sending voice_transcribed event: %v", err)
+	if err := sendEventData(event); err != nil {
+		log.Printf("Error sending transcription event: %v", err)
 	}
 }
