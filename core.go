@@ -119,25 +119,36 @@ func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (
 	voiceConnectionMutex.Lock()
 	defer voiceConnectionMutex.Unlock()
 
+	// If we are already in the target channel with an active connection, do nothing.
 	if activeVoiceConnection != nil && activeVoiceConnection.ChannelID == channelID {
+		log.Printf("Already in voice channel %s, reusing connection.", channelID)
 		return activeVoiceConnection, nil
 	}
 
+	// If we are moving channels, stop recordings first.
 	if activeVoiceConnection != nil {
-		log.Printf("Moving voice connection to %s", channelID)
+		log.Printf("Moving voice connection from %s to %s", activeVoiceConnection.ChannelID, channelID)
 		voiceRecorder.StopAllRecordings()
 	}
 
+	// Join the new channel. This will return a new or existing connection object.
 	vc, err := s.ChannelVoiceJoin(guildID, channelID, true, false)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to join voice channel: %w", err)
 	}
 
-	voiceRecorder.SetCurrentChannel(channelID)
-	if activeVoiceConnection == nil || activeVoiceConnection.ChannelID != channelID {
+	// If the returned connection is a brand new object, we must set up its handlers.
+	// This covers the initial join and any reconnection scenarios where a new connection is made.
+	if vc != activeVoiceConnection {
+		log.Println("New voice connection object detected. Setting up voice receivers...")
 		setupVoiceReceivers(s, vc)
 	}
+
+	// Update the global active connection and the recorder's current channel.
 	activeVoiceConnection = vc
+	voiceRecorder.SetCurrentChannel(channelID)
+
+	log.Printf("Successfully joined/moved to voice channel %s", channelID)
 	return vc, nil
 }
 
