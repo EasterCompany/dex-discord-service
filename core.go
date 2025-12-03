@@ -3,12 +3,13 @@ package main
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -341,15 +342,14 @@ func sendEventData(eventData interface{}) error {
 }
 
 func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
-	ctx := context.Background()
-	audioData, err := voiceRecorder.GetRedis().Get(ctx, redisKey).Bytes()
+	homeDir, err := os.UserHomeDir()
 	if err != nil {
-		log.Printf("Error getting audio from Redis: %v", err)
+		log.Printf("Error getting user home directory: %v", err)
 		return
 	}
+	dexPath := filepath.Join(homeDir, "Dexter", "bin", "dex")
 
-	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
-	cmd := exec.Command("dex", "whisper", "transcribe", "-b", audioBase64)
+	cmd := exec.Command(dexPath, "whisper", "transcribe", "-k", redisKey)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		log.Printf("Error transcribing audio: %v, output: %s", err, string(output))
