@@ -34,15 +34,67 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 	defaultVoiceChannelID = defaultChannel
 	serverID = guildID
 
+	var dg *discordgo.Session // Declare dg early so callbacks capture it
 	var err error
-	voiceRecorder, err = audio.NewVoiceRecorder(ctx)
+	voiceRecorder, err = audio.NewVoiceRecorder(ctx,
+		// OnStart callback
+		func(userID, channelID string) {
+			user, _ := dg.User(userID)
+			channel, _ := dg.Channel(channelID)
+
+			log.Printf("VAD: User %s started speaking.", userID)
+
+			event := utils.UserSpeakingEvent{
+				GenericMessagingEvent: utils.GenericMessagingEvent{
+					Source:      "discord",
+					UserID:      userID,
+					UserName:    user.Username,
+					ChannelID:   channelID,
+					ChannelName: channel.Name,
+					ServerID:    guildID,
+					Timestamp:   time.Now(),
+					Type:        utils.EventTypeMessagingUserSpeakingStarted,
+				},
+			}
+			if err := sendEventData(event); err != nil {
+				log.Printf("Error sending speaking started event: %v", err)
+			}
+		},
+		// OnStop callback
+		func(userID, channelID, redisKey string) {
+			user, _ := dg.User(userID)
+			channel, _ := dg.Channel(channelID)
+
+			log.Printf("VAD: User %s stopped speaking.", userID)
+
+			event := utils.UserSpeakingEvent{
+				GenericMessagingEvent: utils.GenericMessagingEvent{
+					Source:      "discord",
+					UserID:      userID,
+					UserName:    user.Username,
+					ChannelID:   channelID,
+					ChannelName: channel.Name,
+					ServerID:    guildID,
+					Timestamp:   time.Now(),
+					Type:        utils.EventTypeMessagingUserSpeakingStopped,
+				},
+			}
+			if err := sendEventData(event); err != nil {
+				log.Printf("Error sending speaking stopped event: %v", err)
+			}
+
+			if redisKey != "" {
+				go transcribeAudio(dg, userID, channelID, redisKey)
+			}
+		},
+	)
 	if err != nil {
 		log.Printf("FATAL: Error creating voice recorder: %v", err)
 		utils.SetHealthStatus("ERROR", "Failed to create voice recorder")
 		return err
 	}
 
-	dg, err := discordgo.New("Bot " + token)
+	dg, err = discordgo.New("Bot " + token)
 	if err != nil {
 		log.Printf("FATAL: Error creating Discord session: %v", err)
 		return err
@@ -155,42 +207,6 @@ func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (
 func setupVoiceReceivers(s *discordgo.Session, vc *discordgo.VoiceConnection) {
 	vc.AddHandler(func(vc *discordgo.VoiceConnection, vs *discordgo.VoiceSpeakingUpdate) {
 		voiceRecorder.RegisterSSRC(uint32(vs.SSRC), vs.UserID, vc.ChannelID)
-
-		user, _ := s.User(vs.UserID)
-		channel, _ := s.Channel(vc.ChannelID)
-
-		baseEvent := utils.GenericMessagingEvent{
-			Source:      "discord",
-			UserID:      vs.UserID,
-			UserName:    user.Username,
-			ChannelID:   vc.ChannelID,
-			ChannelName: channel.Name,
-			ServerID:    vc.GuildID,
-			Timestamp:   time.Now(),
-		}
-
-		if vs.Speaking {
-			log.Printf("User %s started speaking.", vs.UserID)
-			if err := voiceRecorder.StartRecording(vs.UserID, vc.ChannelID); err != nil {
-				log.Printf("Error starting recording for user %s: %v", vs.UserID, err)
-			}
-			event := utils.UserSpeakingEvent{GenericMessagingEvent: baseEvent, SSRC: uint32(vs.SSRC)}
-			event.Type = utils.EventTypeMessagingUserSpeakingStarted
-			if err := sendEventData(event); err != nil {
-				log.Printf("Error sending speaking started event: %v", err)
-			}
-		} else {
-			log.Printf("User %s stopped speaking.", vs.UserID)
-			redisKey, _ := voiceRecorder.StopRecording(vs.UserID)
-			event := utils.UserSpeakingEvent{GenericMessagingEvent: baseEvent, SSRC: uint32(vs.SSRC)}
-			event.Type = utils.EventTypeMessagingUserSpeakingStopped
-			if err := sendEventData(event); err != nil {
-				log.Printf("Error sending speaking stopped event: %v", err)
-			}
-			if redisKey != "" {
-				go transcribeAudio(s, vs.UserID, vc.ChannelID, redisKey)
-			}
-		}
 	})
 
 	go func() {

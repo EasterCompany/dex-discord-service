@@ -24,7 +24,7 @@ func AudioHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get the voice recorder instance
-	voiceRecorder, err := audio.NewVoiceRecorder(context.Background())
+	voiceRecorder, err := audio.NewVoiceRecorder(context.Background(), nil, nil)
 	if err != nil {
 		log.Printf("Error creating voice recorder: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)

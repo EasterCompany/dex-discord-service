@@ -23,12 +23,13 @@ const (
 
 // UserRecording tracks an active recording session for a user
 type UserRecording struct {
-	UserID    string
-	ChannelID string
-	StartTime int64
-	Buffer    []int16
-	Mutex     sync.Mutex
-	Decoder   *gopus.Decoder
+	UserID         string
+	ChannelID      string
+	StartTime      int64
+	LastPacketTime int64 // UnixMilli
+	Buffer         []int16
+	Mutex          sync.Mutex
+	Decoder        *gopus.Decoder
 }
 
 // VoiceRecorder manages voice recordings for all users
@@ -39,22 +40,60 @@ type VoiceRecorder struct {
 	mutex            sync.RWMutex
 	redisClient      *redis.Client   // Redis client for storing audio
 	ctx              context.Context // Context for Redis operations
+
+	// Callbacks
+	OnStart func(userID, channelID string)
+	OnStop  func(userID, channelID, redisKey string)
 }
 
 // NewVoiceRecorder creates a new voice recorder instance
-func NewVoiceRecorder(ctx context.Context) (*VoiceRecorder, error) {
+func NewVoiceRecorder(ctx context.Context, onStart func(string, string), onStop func(string, string, string)) (*VoiceRecorder, error) {
 	// Initialize Redis client
 	redisClient, err := GetRedisClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize Redis client: %w", err)
 	}
 
-	return &VoiceRecorder{
+	vr := &VoiceRecorder{
 		recordings:  make(map[string]*UserRecording),
 		ssrcToUser:  make(map[string]map[uint32]string),
 		redisClient: redisClient,
 		ctx:         ctx,
-	}, nil
+		OnStart:     onStart,
+		OnStop:      onStop,
+	}
+
+	// Start silence monitor
+	go vr.MonitorSilence()
+
+	return vr, nil
+}
+
+// MonitorSilence checks for silent users and stops their recordings
+func (vr *VoiceRecorder) MonitorSilence() {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		vr.mutex.Lock()
+		var usersToStop []string
+		now := time.Now().UnixMilli()
+
+		for userID, rec := range vr.recordings {
+			// Silence threshold: 500ms
+			if now-rec.LastPacketTime > 500 {
+				usersToStop = append(usersToStop, userID)
+			}
+		}
+		vr.mutex.Unlock()
+
+		for _, userID := range usersToStop {
+			// StopRecording handles the mutex internally
+			if _, err := vr.StopRecording(userID); err != nil {
+				log.Printf("Error stopping recording for user %s: %v", userID, err)
+			}
+		}
+	}
 }
 
 // StartRecording begins recording for a user
@@ -74,16 +113,23 @@ func (vr *VoiceRecorder) StartRecording(userID, channelID string) error {
 	}
 
 	recording := &UserRecording{
-		UserID:    userID,
-		ChannelID: channelID,
-		StartTime: time.Now().Unix(),
-		Buffer:    make([]int16, 0),
-		Decoder:   decoder,
+		UserID:         userID,
+		ChannelID:      channelID,
+		StartTime:      time.Now().Unix(),
+		LastPacketTime: time.Now().UnixMilli(),
+		Buffer:         make([]int16, 0),
+		Decoder:        decoder,
 	}
 
 	vr.recordings[userID] = recording
 
 	log.Printf("Started recording for user %s in channel %s", userID, channelID)
+
+	// Trigger callback asynchronously
+	if vr.OnStart != nil {
+		go vr.OnStart(userID, channelID)
+	}
+
 	return nil
 }
 
@@ -101,9 +147,14 @@ func (vr *VoiceRecorder) StopRecording(userID string) (string, error) {
 
 	stopTime := time.Now().Unix()
 
-	// Don't save if buffer is empty or recording was too short
+	// Don't save if buffer is empty or recording was too short (< 0.5s)
+	// Note: 0.5s check is approximate, mainly to filter noise
 	if len(recording.Buffer) == 0 || (stopTime-recording.StartTime) < 1 {
 		log.Printf("Skipping save for user %s: recording too short or empty", userID)
+		// Still trigger stop callback but with empty key
+		if vr.OnStop != nil {
+			go vr.OnStop(userID, recording.ChannelID, "")
+		}
 		return "", nil
 	}
 
@@ -114,6 +165,12 @@ func (vr *VoiceRecorder) StopRecording(userID string) (string, error) {
 	}
 
 	log.Printf("Stopped and saved recording for user %s to Redis key %s", userID, redisKey)
+
+	// Trigger callback asynchronously
+	if vr.OnStop != nil {
+		go vr.OnStop(userID, recording.ChannelID, redisKey)
+	}
+
 	return redisKey, nil
 }
 
@@ -198,13 +255,28 @@ func (vr *VoiceRecorder) ProcessVoicePacket(ssrc uint32, packet *discordgo.Packe
 		// Unknown SSRC for current channel, skip
 		return nil
 	}
-	vr.mutex.RLock()
-	recording, exists := vr.recordings[userID]
-	vr.mutex.RUnlock()
 
-	if !exists {
-		return nil // Not recording for this user
+	// Check for active recording, start if necessary
+	vr.mutex.Lock()
+	recording, recordingExists := vr.recordings[userID]
+	if !recordingExists {
+		// Start new recording (must unlock first to avoid deadlock as StartRecording locks)
+		vr.mutex.Unlock()
+		if err := vr.StartRecording(userID, channelID); err != nil {
+			return fmt.Errorf("failed to auto-start recording: %w", err)
+		}
+		// Re-acquire the recording
+		vr.mutex.Lock()
+		recording, recordingExists = vr.recordings[userID]
+		if !recordingExists {
+			vr.mutex.Unlock()
+			return fmt.Errorf("recording failed to start for user %s", userID)
+		}
 	}
+
+	// Update last packet time
+	recording.LastPacketTime = time.Now().UnixMilli()
+	vr.mutex.Unlock()
 
 	recording.Mutex.Lock()
 	defer recording.Mutex.Unlock()
