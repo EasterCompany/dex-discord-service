@@ -40,49 +40,53 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 	voiceRecorder, err = audio.NewVoiceRecorder(ctx,
 		// OnStart callback
 		func(userID, channelID string) {
-			user, _ := dg.User(userID)
-			channel, _ := dg.Channel(channelID)
+			// user, _ := dg.User(userID)
+			// channel, _ := dg.Channel(channelID)
 
 			log.Printf("VAD: User %s started speaking.", userID)
 
-			event := utils.UserSpeakingEvent{
-				GenericMessagingEvent: utils.GenericMessagingEvent{
-					Source:      "discord",
-					UserID:      userID,
-					UserName:    user.Username,
-					ChannelID:   channelID,
-					ChannelName: channel.Name,
-					ServerID:    guildID,
-					Timestamp:   time.Now(),
-					Type:        utils.EventTypeMessagingUserSpeakingStarted,
-				},
-			}
-			if err := sendEventData(event); err != nil {
-				log.Printf("Error sending speaking started event: %v", err)
-			}
+			/*
+				event := utils.UserSpeakingEvent{
+					GenericMessagingEvent: utils.GenericMessagingEvent{
+						Source:      "discord",
+						UserID:      userID,
+						UserName:    user.Username,
+						ChannelID:   channelID,
+						ChannelName: channel.Name,
+						ServerID:    guildID,
+						Timestamp:   time.Now(),
+						Type:        utils.EventTypeMessagingUserSpeakingStarted,
+					},
+				}
+				if err := sendEventData(event); err != nil {
+					log.Printf("Error sending speaking started event: %v", err)
+				}
+			*/
 		},
 		// OnStop callback
 		func(userID, channelID, redisKey string) {
-			user, _ := dg.User(userID)
-			channel, _ := dg.Channel(channelID)
+			// user, _ := dg.User(userID)
+			// channel, _ := dg.Channel(channelID)
 
 			log.Printf("VAD: User %s stopped speaking.", userID)
 
-			event := utils.UserSpeakingEvent{
-				GenericMessagingEvent: utils.GenericMessagingEvent{
-					Source:      "discord",
-					UserID:      userID,
-					UserName:    user.Username,
-					ChannelID:   channelID,
-					ChannelName: channel.Name,
-					ServerID:    guildID,
-					Timestamp:   time.Now(),
-					Type:        utils.EventTypeMessagingUserSpeakingStopped,
-				},
-			}
-			if err := sendEventData(event); err != nil {
-				log.Printf("Error sending speaking stopped event: %v", err)
-			}
+			/*
+				event := utils.UserSpeakingEvent{
+					GenericMessagingEvent: utils.GenericMessagingEvent{
+						Source:      "discord",
+						UserID:      userID,
+						UserName:    user.Username,
+						ChannelID:   channelID,
+						ChannelName: channel.Name,
+						ServerID:    guildID,
+						Timestamp:   time.Now(),
+						Type:        utils.EventTypeMessagingUserSpeakingStopped,
+					},
+				}
+				if err := sendEventData(event); err != nil {
+					log.Printf("Error sending speaking stopped event: %v", err)
+				}
+			*/
 
 			if redisKey != "" {
 				go transcribeAudio(dg, userID, channelID, redisKey)
