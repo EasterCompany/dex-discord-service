@@ -1,157 +1,140 @@
 # Dexter Discord Service
 
-**A Discord bot integration service for the Dexter ecosystem**
+**The bridge between Discord and the Dexter ecosystem.**
 
-Dexter Discord Service provides seamless integration between Discord and the Dexter ecosystem. It monitors Discord events (messages, voice state changes, member joins) and forwards them to the event service for asynchronous processing. The service maintains a persistent WebSocket connection to Discord and automatically handles reconnection to ensure reliable event delivery.
+The `dex-discord-service` is a comprehensive gateway that integrates Discord with the Dexter platform. It functions as both an event producer (listening to Discord) and an event consumer (acting on commands/messages), enabling two-way communication between users and the system.
 
-**Platform Support:** Linux (systemd-based distributions)
+## 🏗 Architecture
 
-## Standard Service Interface
+The service operates on a dual-channel model:
 
-All Dexter services implement a universal interface for version information and health monitoring.
+1.  **Gateway Connection (Ingress)**: Maintains a persistent WebSocket connection to the Discord Gateway.
+    *   **Monitors**: Message creation, voice state updates, member joins.
+    *   **Forwards**: Converts these activities into Dexter Events and sends them to the `dex-event-service` for asynchronous processing.
+2.  **API Server (Egress)**: Exposes a REST API allowing other services to perform actions on Discord.
+    *   **Capabilities**: Sending text messages, uploading images, and serving audio assets.
 
-### Version Command
+## 🚀 Tech Stack
 
-Query the service version using the `version` argument:
+*   **Language:** Go 1.24
+*   **Discord Lib:** `discordgo`
+*   **Audio:** `layeh.com/gopus` (Opus encoding)
+*   **Storage:** Redis (via `go-redis/v9`)
+*   **Communication:** HTTP (REST) & WebSocket (Gateway)
 
-```bash
-dex-discord-service version
-```
+## 🔌 Ports & Networking
 
-**Example Output:**
-```
-2.5.4.main.6a7fd26.2025-11-28-09-27-15.linux-amd64.xyz12345
-```
+*   **Port:** `8300` (Default)
+*   **Host:** `0.0.0.0` (Binds to all interfaces)
 
-Version format: `major.minor.patch.branch.commit.buildDate.arch.buildHash`
+## 🛠 Prerequisites
 
-### Service Endpoint
+*   **Go 1.24+**
+*   **dex-cli** (Installed and configured)
+*   **dex-event-service** (Running, for event forwarding)
+*   **Discord Bot Token** (Configured in `options.json`)
 
-When running in server mode, the service exposes a `/service` endpoint on its configured port that returns detailed information:
+## 📦 Getting Started
 
-```bash
-curl http://localhost:8101/service
-```
+The recommended way to manage this service is via the `dex-cli`.
 
-**Example Response:**
+### 1. Configure
+Ensure `~/Dexter/config/options.json` contains valid Discord credentials:
 ```json
 {
-  "version": {
-    "str": "2.5.4.main.6a7fd26.2025-11-28-09-27-15.linux-amd64.xyz12345",
-    "obj": {
-      "major": "2",
-      "minor": "5",
-      "patch": "4",
-      "branch": "main",
-      "commit": "6a7fd26",
-      "build_date": "2025-11-28-09-27-15",
-      "arch": "linux-amd64",
-      "build_hash": "xyz12345"
-    }
-  },
-  "health": {
-    "status": "OK",
-    "uptime": "1h23m45s",
-    "message": "Service is running and connected to Discord"
-  },
-  "metrics": {
-    "messages_received": 1234,
-    "events_sent": 4567,
-    "discord_reconnects": 2
+  "discord": {
+    "token": "YOUR_BOT_TOKEN",
+    "server_id": "YOUR_GUILD_ID",
+    "master_user": "ADMIN_USER_ID",
+    "default_voice_channel": "CHANNEL_ID"
   }
 }
 ```
 
-For simple version string only:
+### 2. Build
+Build the service from source:
 ```bash
-curl http://localhost:8101/service?format=version
+dex build discord
 ```
 
-## Discord Service Specifics
+### 3. Run
+Start the service:
+```bash
+dex start discord
+```
 
-### Monitored Events
+### 4. Verify
+Check connection status:
+```bash
+dex status discord
+```
 
-The service monitors the following Discord events and forwards them to the event service:
+## 📡 API Documentation
 
-- **Message Creation**: User messages posted in channels
-- **Voice State Updates**: Users joining or leaving voice channels
-- **Guild Member Add**: New users joining the Discord server
-- **Service Connection**: Bot connection and reconnection events
+The service exposes endpoints for internal communication and health monitoring.
 
-### Event Format
+### Base URL
+`http://localhost:8300`
 
-Events are sent to the event service as JSON via HTTP POST:
+### Endpoints
+
+#### 1. Service Health & Info
+Get the current status, version, and Discord connection state.
+*   **GET** `/service`
+*   **Query Param:** `?format=version` (Optional, returns version string only)
 
 ```json
 {
-  "source": "dex-discord-service",
-  "type": "message_posted",
-  "message": "username user posted in channel-name channel: Hello world!"
+  "version": {
+    "str": "2.5.4.main.xyz...",
+    "obj": { ... }
+  },
+  "health": {
+    "status": "OK",
+    "message": "Service is running and connected to Discord"
+  },
+  "metrics": {
+    "messages_received": 120,
+    "events_sent": 120
+  }
 }
 ```
 
-### Server Mode
+#### 2. Post Message
+Send a message to a Discord channel. Supports text and/or images.
+*   **POST** `/post`
+*   **Headers:**
+    *   `Content-Type: application/json`
+    *   `X-Service-Name: <calling-service-id>` (Required for auth)
 
-Running without arguments starts the HTTP server and Discord bot:
-
-```bash
-dex-discord-service
-```
-
-The service runs as a systemd user service and maintains a persistent connection to Discord.
-
-## API Endpoints
-
-### POST /post
-
-Send messages or images to Discord channels. This endpoint is protected by service authentication middleware.
-
-**Authentication**: Requires `X-Service-Name` header with a valid service name from the service map (localhost requests bypass authentication).
-
-**Request Body**:
+**Payload:**
 ```json
 {
-  "server_id": "1234567890",      // Optional: Discord Guild/Server ID
-  "channel_id": "9876543210",     // Required: Discord Channel ID
-  "content": "Hello, World!",     // Optional: Text message (required if no image_url)
-  "image_url": "https://..."      // Optional: URL to image to send (required if no content)
+  "channel_id": "9876543210",
+  "content": "Hello from Dexter!",
+  "image_url": "https://example.com/image.png"
 }
 ```
+*Note: Either `content` or `image_url` (or both) is required.*
 
-**Response** (Success - 200 OK):
-```json
-{
-  "success": true,
-  "message_id": "1234567890123456789",
-  "channel_id": "9876543210"
-}
-```
+#### 3. Audio Access
+Public endpoint to retrieve recorded or processed audio files.
+*   **GET** `/audio/{filename}`
 
-**Example - Send Text Message**:
-```bash
-curl -X POST http://localhost:8101/post \
-  -H "Content-Type: application/json" \
-  -H "X-Service-Name: dex-event-service" \
-  -d '{
-    "channel_id": "9876543210",
-    "content": "Hello from the API!"
-  }'
-```
+## ⚙️ Configuration
 
-**Example - Send Image**:
-```bash
-curl -X POST http://localhost:8101/post \
-  -H "Content-Type: application/json" \
-  -H "X-Service-Name: dex-event-service" \
-  -d '{
-    "channel_id": "9876543210",
-    "content": "Check out this image:",
-    "image_url": "https://example.com/image.png"
-  }'
-```
+Configuration is managed centrally by `dex-cli` and stored in `~/Dexter/config/`.
 
-**Error Responses**:
-- `400 Bad Request`: Invalid JSON, missing required fields, or failed to fetch image
-- `403 Forbidden`: Authentication failed (invalid service name or IP)
-- `405 Method Not Allowed`: Non-POST request
-- `503 Service Unavailable`: Discord connection not established
+*   **`service-map.json`**: Defines the service's port (`8300`).
+*   **`options.json`**: Critical Discord settings (Token, Guild ID, etc.).
+
+## 🔍 Troubleshooting
+
+**"Discord token not found"**
+*   Verify that `options.json` exists in `~/Dexter/config/` and has a valid `discord.token` set.
+
+**"Event service not found"**
+*   Ensure `dex-event-service` is defined in `service-map.json` and is currently running. The bot cannot forward events if the event bus is down.
+
+**"Authentication failed" (HTTP 403)**
+*   When calling `/post`, ensure you provide a valid `X-Service-Name` header matching a registered service ID.
