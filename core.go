@@ -350,9 +350,13 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 	dexPath := filepath.Join(homeDir, "Dexter", "bin", "dex")
 
 	cmd := exec.Command(dexPath, "whisper", "transcribe", "-k", redisKey)
-	output, err := cmd.CombinedOutput()
+	output, err := cmd.Output()
 	if err != nil {
-		log.Printf("Error transcribing audio: %v, output: %s", err, string(output))
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			log.Printf("Error transcribing audio: %v, stderr: %s", err, string(exitErr.Stderr))
+		} else {
+			log.Printf("Error transcribing audio: %v", err)
+		}
 		return
 	}
 
