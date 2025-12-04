@@ -410,7 +410,6 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 			Timestamp:   time.Now(),
 		},
 		Transcription:      transcription,
-		AudioKey:           redisKey,
 		DetectedLanguage:   detectedLang,
 		EnglishTranslation: englishTranslation,
 	}

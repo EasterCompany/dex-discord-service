@@ -70,7 +70,6 @@ type UserSpeakingEvent struct {
 type UserTranscribedEvent struct {
 	GenericMessagingEvent
 	Transcription      string `json:"transcription"`
-	AudioKey           string `json:"audio_key"`
 	DetectedLanguage   string `json:"detected_language,omitempty"`
 	EnglishTranslation string `json:"english_translation,omitempty"`
 }
