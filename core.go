@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -339,6 +340,12 @@ func sendEventData(eventData interface{}) error {
 				utils.IncrementEventsSent()
 				return nil
 			}
+
+			// Read response body for error details
+			respBody, _ := io.ReadAll(resp.Body)
+			log.Printf("Failed to send event (Attempt %d/3): Status %d, Body: %s", i+1, resp.StatusCode, string(respBody))
+		} else {
+			log.Printf("Failed to send event (Attempt %d/3): %v", i+1, err)
 		}
 		time.Sleep(time.Duration(i+1) * 2 * time.Second)
 	}
