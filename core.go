@@ -354,7 +354,7 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 	dexPath := filepath.Join(homeDir, "Dexter", "bin", "dex")
 
 	cmd := exec.Command(dexPath, "whisper", "transcribe", "-k", redisKey)
-	output, err := cmd.Output()
+	outputBytes, err := cmd.Output()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			log.Printf("Error transcribing audio: %v, stderr: %s", err, string(exitErr.Stderr))
@@ -364,12 +364,39 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 		return
 	}
 
-	transcription := strings.TrimSpace(string(output))
+	// Structure to parse dex-cli JSON output
+	var dexOutput struct {
+		OriginalTranscription string `json:"original_transcription"`
+		DetectedLanguage      string `json:"detected_language"`
+		EnglishTranslation    string `json:"english_translation"`
+		Error                 string `json:"error"`
+	}
+
+	transcription := ""
+	detectedLang := "en"
+	englishTranslation := ""
+
+	// Attempt to parse JSON output
+	if err := json.Unmarshal(outputBytes, &dexOutput); err == nil {
+		if dexOutput.Error != "" {
+			log.Printf("Error from dex-cli: %s", dexOutput.Error)
+			return
+		}
+		transcription = dexOutput.OriginalTranscription
+		detectedLang = dexOutput.DetectedLanguage
+		englishTranslation = dexOutput.EnglishTranslation
+	} else {
+		// Fallback for non-JSON output (or legacy behavior)
+		transcription = strings.TrimSpace(string(outputBytes))
+	}
 
 	user, _ := s.User(userID)
 	channel, _ := s.Channel(channelID)
 
-	log.Printf("user %s in channel %s said: %s", user.Username, channel.Name, transcription)
+	log.Printf("user %s in channel %s (lang: %s) said: %s", user.Username, channel.Name, detectedLang, transcription)
+	if englishTranslation != "" {
+		log.Printf("Translation: %s", englishTranslation)
+	}
 
 	event := utils.UserTranscribedEvent{
 		GenericMessagingEvent: utils.GenericMessagingEvent{
@@ -382,8 +409,10 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 			ServerID:    channel.GuildID,
 			Timestamp:   time.Now(),
 		},
-		Transcription: transcription,
-		AudioKey:      redisKey,
+		Transcription:      transcription,
+		AudioKey:           redisKey,
+		DetectedLanguage:   detectedLang,
+		EnglishTranslation: englishTranslation,
 	}
 	if err := sendEventData(event); err != nil {
 		log.Printf("Error sending transcription event: %v", err)

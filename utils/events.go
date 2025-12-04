@@ -69,6 +69,8 @@ type UserSpeakingEvent struct {
 // UserTranscribedEvent is for when a user's speech is transcribed
 type UserTranscribedEvent struct {
 	GenericMessagingEvent
-	Transcription string `json:"transcription"`
-	AudioKey      string `json:"audio_key"` // e.g., redis key
+	Transcription      string `json:"transcription"`
+	AudioKey           string `json:"audio_key"`
+	DetectedLanguage   string `json:"detected_language,omitempty"`
+	EnglishTranslation string `json:"english_translation,omitempty"`
 }
