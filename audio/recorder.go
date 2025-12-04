@@ -147,9 +147,9 @@ func (vr *VoiceRecorder) StopRecording(userID string) (string, error) {
 
 	stopTime := time.Now().Unix()
 
-	// Don't save if buffer is empty or recording was too short (< 1 second)
-	// 48kHz * 2 channels = 96000 samples per second
-	if len(recording.Buffer) < 96000 {
+	// Don't save if buffer is empty or recording was too short (< 0.5 second)
+	// 48kHz * 2 channels = 96000 samples per second, so 0.5s = 48000
+	if len(recording.Buffer) < 48000 {
 		log.Printf("Skipping save for user %s: recording too short (%d samples)", userID, len(recording.Buffer))
 		// Still trigger stop callback but with empty key
 		if vr.OnStop != nil {
