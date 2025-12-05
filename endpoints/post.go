@@ -27,10 +27,11 @@ func SetEventServiceURL(url string) {
 
 // PostRequest represents the structure of a post request
 type PostRequest struct {
-	ServerID  string `json:"server_id"`  // Discord Guild/Server ID
-	ChannelID string `json:"channel_id"` // Discord Channel ID
-	Content   string `json:"content"`    // Text message content (optional if image provided)
-	ImageURL  string `json:"image_url"`  // URL to image to send (optional)
+	ServerID  string                 `json:"server_id"`  // Discord Guild/Server ID
+	ChannelID string                 `json:"channel_id"` // Discord Channel ID
+	Content   string                 `json:"content"`    // Text message content (optional if image provided)
+	ImageURL  string                 `json:"image_url"`  // URL to image to send (optional)
+	Metadata  map[string]interface{} `json:"metadata"`   // Optional metadata (e.g., debug info)
 }
 
 // PostHandler handles POST requests to send messages to Discord
@@ -184,6 +185,16 @@ func PostHandler(w http.ResponseWriter, r *http.Request) {
 			"message_id":   message.ID,
 			"content":      req.Content,
 			"timestamp":    time.Now().Format(time.RFC3339),
+		}
+
+		// Merge metadata into eventData (specifically look for response_model and response_raw)
+		if req.Metadata != nil {
+			if val, ok := req.Metadata["response_model"]; ok {
+				eventData["response_model"] = val
+			}
+			if val, ok := req.Metadata["response_raw"]; ok {
+				eventData["response_raw"] = val
+			}
 		}
 
 		eventJSON, _ := json.Marshal(eventData)
