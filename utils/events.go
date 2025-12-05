@@ -37,8 +37,9 @@ type GenericMessagingEvent struct {
 // UserSentMessageEvent is the payload for EventTypeMessagingUserSentMessage
 type UserSentMessageEvent struct {
 	GenericMessagingEvent
-	MessageID string `json:"message_id"`
-	Content   string `json:"content"`
+	MessageID    string `json:"message_id"`
+	Content      string `json:"content"`
+	MentionedBot bool   `json:"mentioned_bot"`
 }
 
 // UserVoiceStateChangeEvent is the payload for voice channel join/leave events

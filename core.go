@@ -254,9 +254,18 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			ServerID:    serverID,
 			Timestamp:   m.Timestamp,
 		},
-		MessageID: m.ID,
-		Content:   m.Content,
+		MessageID:    m.ID,
+		Content:      m.Content,
+		MentionedBot: false,
 	}
+
+	for _, user := range m.Mentions {
+		if user.ID == s.State.User.ID {
+			event.MentionedBot = true
+			break
+		}
+	}
+
 	if err := sendEventData(event); err != nil {
 		log.Printf("Error sending message event: %v", err)
 	}
