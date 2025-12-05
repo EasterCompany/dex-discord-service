@@ -195,6 +195,9 @@ func PostHandler(w http.ResponseWriter, r *http.Request) {
 			if val, ok := req.Metadata["response_raw"]; ok {
 				eventData["response_raw"] = val
 			}
+			if val, ok := req.Metadata["raw_input"]; ok {
+				eventData["raw_input"] = val
+			}
 		}
 
 		eventJSON, _ := json.Marshal(eventData)
