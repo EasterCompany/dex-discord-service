@@ -135,6 +135,9 @@ func main() {
 	// /context/channel endpoint is protected by auth middleware
 	mux.HandleFunc("/context/channel", middleware.ServiceAuthMiddleware(endpoints.GetChannelContextHandler))
 
+	// /status endpoint is protected by auth middleware
+	mux.HandleFunc("/status", middleware.ServiceAuthMiddleware(endpoints.UpdateStatusHandler))
+
 	// /audio endpoint is public
 	mux.HandleFunc("/audio/", endpoints.AudioHandler)
 
