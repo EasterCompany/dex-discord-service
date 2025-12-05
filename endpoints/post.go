@@ -1,20 +1,28 @@
 package endpoints
 
 import (
+	"bytes"
 	"encoding/json"
 	"io"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/EasterCompany/dex-discord-service/utils"
 	"github.com/bwmarrin/discordgo"
 )
 
 var discordSession *discordgo.Session
+var eventServiceURL string
 
 // SetDiscordSession sets the Discord session for the post endpoint
 func SetDiscordSession(session *discordgo.Session) {
 	discordSession = session
+}
+
+// SetEventServiceURL sets the URL for the event service
+func SetEventServiceURL(url string) {
+	eventServiceURL = url
 }
 
 // PostRequest represents the structure of a post request
@@ -127,6 +135,38 @@ func PostHandler(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("POST SUCCESS: Message sent to channel %s: %s", req.ChannelID, message.ID)
 	utils.IncrementMessagesSent()
+
+	// Emit bot_response event
+	go func() {
+		if eventServiceURL == "" {
+			return
+		}
+
+		eventData := map[string]interface{}{
+			"type":           "bot_response",
+			"response":       req.Content,
+			"target_channel": req.ChannelID,
+			"timestamp":      time.Now().Unix(),
+		}
+
+		eventJSON, _ := json.Marshal(eventData)
+		request := map[string]interface{}{
+			"service": "dex-discord-service",
+			"event":   json.RawMessage(eventJSON),
+		}
+
+		body, _ := json.Marshal(request)
+		resp, err := http.Post(eventServiceURL+"/events", "application/json", bytes.NewBuffer(body))
+		if err != nil {
+			log.Printf("Warning: Failed to emit bot_response event: %v", err)
+			return
+		}
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				log.Printf("Error closing event service response body: %v", err)
+			}
+		}()
+	}()
 
 	// Return success response
 	w.Header().Set("Content-Type", "application/json")

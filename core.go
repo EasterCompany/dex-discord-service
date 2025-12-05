@@ -32,6 +32,7 @@ var voiceConnectionMutex sync.Mutex
 // RunCoreLogic manages the Discord session and its event handlers.
 func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultChannel, guildID string) error {
 	eventServiceURL = serviceURL
+	endpoints.SetEventServiceURL(serviceURL)
 	masterUserID = masterUser
 	defaultVoiceChannelID = defaultChannel
 	serverID = guildID
