@@ -243,6 +243,14 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		serverID = m.GuildID
 	}
 
+	// Pre-process content to replace mentions with usernames
+	content := m.Content
+	for _, user := range m.Mentions {
+		// Replace <@USER_ID> and <@!USER_ID> with @username
+		content = strings.ReplaceAll(content, fmt.Sprintf("<@%s>", user.ID), fmt.Sprintf("@%s", user.Username))
+		content = strings.ReplaceAll(content, fmt.Sprintf("<@!%s>", user.ID), fmt.Sprintf("@%s", user.Username))
+	}
+
 	event := utils.UserSentMessageEvent{
 		GenericMessagingEvent: utils.GenericMessagingEvent{
 			Type:        utils.EventTypeMessagingUserSentMessage,
@@ -255,7 +263,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			Timestamp:   m.Timestamp,
 		},
 		MessageID:    m.ID,
-		Content:      m.Content,
+		Content:      content,
 		MentionedBot: false,
 	}
 
