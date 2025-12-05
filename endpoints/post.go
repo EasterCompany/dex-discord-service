@@ -136,17 +136,54 @@ func PostHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("POST SUCCESS: Message sent to channel %s: %s", req.ChannelID, message.ID)
 	utils.IncrementMessagesSent()
 
-	// Emit bot_response event
+	// Emit messaging.bot.sent_message event
 	go func() {
 		if eventServiceURL == "" {
 			return
 		}
 
+		// Fetch channel details for names
+		channel, err := discordSession.Channel(req.ChannelID)
+		channelName := "unknown-channel"
+		guildID := ""
+		if err == nil {
+			channelName = channel.Name
+			if channel.Type == discordgo.ChannelTypeDM {
+				channelName = "DM"
+			}
+			guildID = channel.GuildID
+		}
+
+		// Fetch guild details
+		serverName := "DM"
+		if guildID != "" {
+			guild, err := discordSession.Guild(guildID)
+			if err == nil {
+				serverName = guild.Name
+			}
+		}
+
+		// Get Bot User Info
+		botUser := discordSession.State.User
+		botID := "unknown"
+		botName := "Dexter"
+		if botUser != nil {
+			botID = botUser.ID
+			botName = botUser.Username
+		}
+
 		eventData := map[string]interface{}{
-			"type":           "bot_response",
-			"response":       req.Content,
-			"target_channel": req.ChannelID,
-			"timestamp":      time.Now().Unix(),
+			"type":         "messaging.bot.sent_message",
+			"source":       "discord",
+			"user_id":      botID,
+			"user_name":    botName,
+			"channel_id":   req.ChannelID,
+			"channel_name": channelName,
+			"server_id":    guildID,
+			"server_name":  serverName,
+			"message_id":   message.ID,
+			"content":      req.Content,
+			"timestamp":    time.Now().Format(time.RFC3339),
 		}
 
 		eventJSON, _ := json.Marshal(eventData)
@@ -158,7 +195,7 @@ func PostHandler(w http.ResponseWriter, r *http.Request) {
 		body, _ := json.Marshal(request)
 		resp, err := http.Post(eventServiceURL+"/events", "application/json", bytes.NewBuffer(body))
 		if err != nil {
-			log.Printf("Warning: Failed to emit bot_response event: %v", err)
+			log.Printf("Warning: Failed to emit event: %v", err)
 			return
 		}
 		defer func() {
