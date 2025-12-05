@@ -112,7 +112,7 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 		}
 	}()
 
-	dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsGuildVoiceStates | discordgo.IntentsGuildMembers
+	dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsGuildVoiceStates | discordgo.IntentsGuildMembers | discordgo.IntentsDirectMessages
 	dg.ShouldReconnectOnError = true
 
 	dg.AddHandler(ready)
@@ -232,7 +232,16 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		return
 	}
 	utils.IncrementMessagesReceived()
-	channel, _ := s.Channel(m.ChannelID)
+
+	channelName := "DM"
+	serverID := ""
+	if m.GuildID != "" {
+		channel, err := s.Channel(m.ChannelID)
+		if err == nil {
+			channelName = channel.Name
+		}
+		serverID = m.GuildID
+	}
 
 	event := utils.UserSentMessageEvent{
 		GenericMessagingEvent: utils.GenericMessagingEvent{
@@ -241,8 +250,8 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			UserID:      m.Author.ID,
 			UserName:    m.Author.Username,
 			ChannelID:   m.ChannelID,
-			ChannelName: channel.Name,
-			ServerID:    m.GuildID,
+			ChannelName: channelName,
+			ServerID:    serverID,
 			Timestamp:   m.Timestamp,
 		},
 		MessageID: m.ID,
