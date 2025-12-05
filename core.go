@@ -112,7 +112,7 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 		}
 	}()
 
-	dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsGuildVoiceStates | discordgo.IntentsGuildMembers | discordgo.IntentsDirectMessages
+	dg.Identify.Intents = discordgo.IntentsGuilds | discordgo.IntentsGuildMessages | discordgo.IntentsGuildVoiceStates | discordgo.IntentsGuildMembers | discordgo.IntentsDirectMessages | discordgo.IntentsGuildPresences
 	dg.ShouldReconnectOnError = true
 
 	dg.AddHandler(ready)
