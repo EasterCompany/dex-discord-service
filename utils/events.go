@@ -34,12 +34,25 @@ type GenericMessagingEvent struct {
 	Timestamp   time.Time `json:"timestamp"`
 }
 
+// Attachment represents a file attached to a message
+type Attachment struct {
+	ID          string `json:"id"`
+	URL         string `json:"url"`
+	ProxyURL    string `json:"proxy_url"`
+	Filename    string `json:"filename"`
+	ContentType string `json:"content_type"`
+	Size        int    `json:"size"`
+	Height      int    `json:"height,omitempty"`
+	Width       int    `json:"width,omitempty"`
+}
+
 // UserSentMessageEvent is the payload for EventTypeMessagingUserSentMessage
 type UserSentMessageEvent struct {
 	GenericMessagingEvent
-	MessageID    string `json:"message_id"`
-	Content      string `json:"content"`
-	MentionedBot bool   `json:"mentioned_bot"`
+	MessageID    string       `json:"message_id"`
+	Content      string       `json:"content"`
+	MentionedBot bool         `json:"mentioned_bot"`
+	Attachments  []Attachment `json:"attachments,omitempty"`
 }
 
 // UserVoiceStateChangeEvent is the payload for voice channel join/leave events

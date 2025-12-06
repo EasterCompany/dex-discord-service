@@ -251,6 +251,20 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		content = strings.ReplaceAll(content, fmt.Sprintf("<@!%s>", user.ID), fmt.Sprintf("@%s", user.Username))
 	}
 
+	var attachments []utils.Attachment
+	for _, a := range m.Attachments {
+		attachments = append(attachments, utils.Attachment{
+			ID:          a.ID,
+			URL:         a.URL,
+			ProxyURL:    a.ProxyURL,
+			Filename:    a.Filename,
+			ContentType: a.ContentType,
+			Size:        a.Size,
+			Height:      a.Height,
+			Width:       a.Width,
+		})
+	}
+
 	event := utils.UserSentMessageEvent{
 		GenericMessagingEvent: utils.GenericMessagingEvent{
 			Type:        utils.EventTypeMessagingUserSentMessage,
@@ -265,6 +279,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		MessageID:    m.ID,
 		Content:      content,
 		MentionedBot: false,
+		Attachments:  attachments,
 	}
 
 	for _, user := range m.Mentions {
