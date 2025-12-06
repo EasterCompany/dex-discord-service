@@ -21,6 +21,8 @@ import (
 	"github.com/bwmarrin/discordgo"
 )
 
+const MaxAttachmentSize = 10 * 1024 * 1024 // 10 MiB
+
 var eventServiceURL string
 var masterUserID string
 var defaultVoiceChannelID string
@@ -253,6 +255,10 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	var attachments []utils.Attachment
 	for _, a := range m.Attachments {
+		if a.Size > MaxAttachmentSize {
+			log.Printf("Attachment '%s' skipped: size %d exceeds limit %d", a.Filename, a.Size, MaxAttachmentSize)
+			continue
+		}
 		attachments = append(attachments, utils.Attachment{
 			ID:          a.ID,
 			URL:         a.URL,
