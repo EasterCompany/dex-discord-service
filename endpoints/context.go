@@ -3,6 +3,7 @@ package endpoints
 import (
 	"encoding/json"
 	"net/http"
+	"sort"
 
 	"github.com/bwmarrin/discordgo"
 )
@@ -17,6 +18,133 @@ type ChannelContextResponse struct {
 	ChannelName string        `json:"channel_name"`
 	GuildName   string        `json:"guild_name,omitempty"`
 	Users       []UserContext `json:"users"`
+}
+
+type ChannelInfo struct {
+	ID       string   `json:"id"`
+	Name     string   `json:"name"`
+	Type     int      `json:"type"`
+	Position int      `json:"position"`
+	Users    []string `json:"users,omitempty"`
+}
+
+type CategoryInfo struct {
+	ID       string        `json:"id"`
+	Name     string        `json:"name"`
+	Position int           `json:"position"`
+	Channels []ChannelInfo `json:"channels"`
+}
+
+type GuildStructureResponse struct {
+	GuildID       string         `json:"guild_id"`
+	GuildName     string         `json:"guild_name"`
+	Categories    []CategoryInfo `json:"categories"`
+	Uncategorized []ChannelInfo  `json:"uncategorized"`
+}
+
+// GetGuildStructureHandler returns the full channel structure of all connected guilds
+func GetGuildStructureHandler(w http.ResponseWriter, r *http.Request) {
+	if discordSession == nil {
+		http.Error(w, "Discord session not ready", http.StatusServiceUnavailable)
+		return
+	}
+
+	var response []GuildStructureResponse
+
+	for _, guild := range discordSession.State.Guilds {
+		structure := GuildStructureResponse{
+			GuildID:   guild.ID,
+			GuildName: guild.Name,
+		}
+
+		categoriesMap := make(map[string]*CategoryInfo)
+		var uncategorized []ChannelInfo
+
+		// 1. Find Categories
+		for _, c := range guild.Channels {
+			if c.Type == discordgo.ChannelTypeGuildCategory {
+				categoriesMap[c.ID] = &CategoryInfo{
+					ID:       c.ID,
+					Name:     c.Name,
+					Position: c.Position,
+					Channels: []ChannelInfo{},
+				}
+			}
+		}
+
+		// 2. Process Channels
+		for _, c := range guild.Channels {
+			if c.Type == discordgo.ChannelTypeGuildCategory {
+				continue
+			}
+
+			// Determine users in voice
+			var users []string
+			if c.Type == discordgo.ChannelTypeGuildVoice {
+				for _, vs := range guild.VoiceStates {
+					if vs.ChannelID == c.ID {
+						user, err := discordSession.State.Member(guild.ID, vs.UserID)
+						if err == nil {
+							name := user.Nick
+							if name == "" {
+								name = user.User.Username
+							}
+							users = append(users, name)
+						} else {
+							// Fallback
+							u, _ := discordSession.User(vs.UserID)
+							if u != nil {
+								users = append(users, u.Username)
+							}
+						}
+					}
+				}
+			}
+
+			info := ChannelInfo{
+				ID:       c.ID,
+				Name:     c.Name,
+				Type:     int(c.Type),
+				Position: c.Position,
+				Users:    users,
+			}
+
+			if c.ParentID != "" {
+				if cat, ok := categoriesMap[c.ParentID]; ok {
+					cat.Channels = append(cat.Channels, info)
+				} else {
+					uncategorized = append(uncategorized, info)
+				}
+			} else {
+				uncategorized = append(uncategorized, info)
+			}
+		}
+
+		// 3. Convert Map to Slice and Sort
+		for _, cat := range categoriesMap {
+			// Sort channels in category
+			sort.Slice(cat.Channels, func(i, j int) bool {
+				return cat.Channels[i].Position < cat.Channels[j].Position
+			})
+			structure.Categories = append(structure.Categories, *cat)
+		}
+
+		// Sort categories
+		sort.Slice(structure.Categories, func(i, j int) bool {
+			return structure.Categories[i].Position < structure.Categories[j].Position
+		})
+
+		// Sort uncategorized
+		sort.Slice(uncategorized, func(i, j int) bool {
+			return uncategorized[i].Position < uncategorized[j].Position
+		})
+		structure.Uncategorized = uncategorized
+
+		response = append(response, structure)
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 // GetChannelContextHandler returns context information about a channel (users, status)
