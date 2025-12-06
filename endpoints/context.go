@@ -204,6 +204,38 @@ func GetChannelContextHandler(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(response)
 }
 
+// GetLatestMessageIDHandler returns the ID of the last message in a channel
+func GetLatestMessageIDHandler(w http.ResponseWriter, r *http.Request) {
+	if discordSession == nil {
+		http.Error(w, "Discord session not ready", http.StatusServiceUnavailable)
+		return
+	}
+
+	channelID := r.URL.Query().Get("channel_id")
+	if channelID == "" {
+		http.Error(w, "channel_id required", http.StatusBadRequest)
+		return
+	}
+
+	channel, err := discordSession.State.Channel(channelID)
+	if err != nil {
+		// Try fetching from API if not in state
+		channel, err = discordSession.Channel(channelID)
+		if err != nil {
+			http.Error(w, "Channel not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	response := map[string]string{
+		"channel_id":      channel.ID,
+		"last_message_id": channel.LastMessageID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
+}
+
 func resolveUserStatus(userID, guildID, knownUsername string) UserContext {
 	username := utils.GetUserDisplayName(discordSession, redisClient, guildID, userID)
 	if username == "Unknown User" && knownUsername != "" {
