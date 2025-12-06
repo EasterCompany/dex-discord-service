@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"sort"
 
+	"github.com/EasterCompany/dex-discord-service/utils"
 	"github.com/bwmarrin/discordgo"
 )
 
@@ -83,20 +84,8 @@ func GetGuildStructureHandler(w http.ResponseWriter, r *http.Request) {
 			if c.Type == discordgo.ChannelTypeGuildVoice {
 				for _, vs := range guild.VoiceStates {
 					if vs.ChannelID == c.ID {
-						user, err := discordSession.State.Member(guild.ID, vs.UserID)
-						if err == nil {
-							name := user.Nick
-							if name == "" {
-								name = user.User.Username
-							}
-							users = append(users, name)
-						} else {
-							// Fallback
-							u, _ := discordSession.User(vs.UserID)
-							if u != nil {
-								users = append(users, u.Username)
-							}
-						}
+						displayName := utils.GetUserDisplayName(discordSession, guild.ID, vs.UserID)
+						users = append(users, displayName)
 					}
 				}
 			}
