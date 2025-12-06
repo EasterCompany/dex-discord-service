@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/EasterCompany/dex-discord-service/audio"
 	"github.com/EasterCompany/dex-discord-service/config"
 	"github.com/EasterCompany/dex-discord-service/endpoints"
 	"github.com/EasterCompany/dex-discord-service/middleware"
@@ -111,10 +112,23 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	// Initialize Redis Client
+	redisClient, err := audio.GetRedisClient(ctx)
+	if err != nil {
+		log.Printf("Warning: Failed to connect to Redis: %v. User caching will be disabled.", err)
+	} else {
+		defer func() {
+			if err := redisClient.Close(); err != nil {
+				log.Printf("Error closing Redis client: %v", err)
+			}
+		}()
+		endpoints.SetRedisClient(redisClient)
+	}
+
 	// Start the core event logic in a goroutine
 	go func() {
 		log.Println("Core Logic: Starting...")
-		if err := RunCoreLogic(ctx, discordToken, eventServiceURL, options.Discord.MasterUser, options.Discord.DefaultVoiceChannel, options.Discord.ServerID); err != nil {
+		if err := RunCoreLogic(ctx, discordToken, eventServiceURL, options.Discord.MasterUser, options.Discord.DefaultVoiceChannel, options.Discord.ServerID, redisClient); err != nil {
 			log.Printf("Core Logic Error: %v", err)
 			// Trigger shutdown if core logic fails
 			cancel()

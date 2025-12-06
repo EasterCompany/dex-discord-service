@@ -19,6 +19,7 @@ import (
 	"github.com/EasterCompany/dex-discord-service/endpoints"
 	"github.com/EasterCompany/dex-discord-service/utils"
 	"github.com/bwmarrin/discordgo"
+	"github.com/redis/go-redis/v9"
 )
 
 const MaxAttachmentSize = 10 * 1024 * 1024 // 10 MiB
@@ -27,17 +28,19 @@ var eventServiceURL string
 var masterUserID string
 var defaultVoiceChannelID string
 var serverID string
+var redisClient *redis.Client
 var voiceRecorder *audio.VoiceRecorder
 var activeVoiceConnection *discordgo.VoiceConnection
 var voiceConnectionMutex sync.Mutex
 
 // RunCoreLogic manages the Discord session and its event handlers.
-func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultChannel, guildID string) error {
+func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultChannel, guildID string, rc *redis.Client) error {
 	eventServiceURL = serviceURL
 	endpoints.SetEventServiceURL(serviceURL)
 	masterUserID = masterUser
 	defaultVoiceChannelID = defaultChannel
 	serverID = guildID
+	redisClient = rc
 
 	var dg *discordgo.Session // Declare dg early so callbacks capture it
 	var err error
@@ -248,7 +251,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	// Pre-process content to replace mentions with display names
 	content := m.Content
 	for _, user := range m.Mentions {
-		displayName := utils.GetUserDisplayName(s, m.GuildID, user.ID)
+		displayName := utils.GetUserDisplayName(s, redisClient, m.GuildID, user.ID)
 		// Replace <@USER_ID> and <@!USER_ID> with @DisplayName
 		content = strings.ReplaceAll(content, fmt.Sprintf("<@%s>", user.ID), fmt.Sprintf("@%s", displayName))
 		content = strings.ReplaceAll(content, fmt.Sprintf("<@!%s>", user.ID), fmt.Sprintf("@%s", displayName))
@@ -277,7 +280,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			Type:        utils.EventTypeMessagingUserSentMessage,
 			Source:      "discord",
 			UserID:      m.Author.ID,
-			UserName:    utils.GetUserDisplayName(s, m.GuildID, m.Author.ID),
+			UserName:    utils.GetUserDisplayName(s, redisClient, m.GuildID, m.Author.ID),
 			ChannelID:   m.ChannelID,
 			ChannelName: channelName,
 			ServerID:    serverID,
@@ -330,7 +333,7 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 				Type:        eventType,
 				Source:      "discord",
 				UserID:      v.UserID,
-				UserName:    utils.GetUserDisplayName(s, v.GuildID, v.UserID),
+				UserName:    utils.GetUserDisplayName(s, redisClient, v.GuildID, v.UserID),
 				ChannelID:   channelID,
 				ChannelName: channel.Name,
 				ServerID:    v.GuildID,
@@ -350,7 +353,7 @@ func guildMemberAdd(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
 			Type:       utils.EventTypeMessagingUserJoinedServer,
 			Source:     "discord",
 			UserID:     m.User.ID,
-			UserName:   utils.GetUserDisplayName(s, m.GuildID, m.User.ID),
+			UserName:   utils.GetUserDisplayName(s, redisClient, m.GuildID, m.User.ID),
 			ServerID:   m.GuildID,
 			ServerName: guild.Name,
 			Timestamp:  m.JoinedAt,
@@ -442,7 +445,7 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 	}
 
 	channel, _ := s.Channel(channelID)
-	userName := utils.GetUserDisplayName(s, channel.GuildID, userID)
+	userName := utils.GetUserDisplayName(s, redisClient, channel.GuildID, userID)
 
 	log.Printf("user %s in channel %s (lang: %s) said: %s", userName, channel.Name, detectedLang, transcription)
 	if englishTranslation != "" {

@@ -10,10 +10,12 @@ import (
 
 	"github.com/EasterCompany/dex-discord-service/utils"
 	"github.com/bwmarrin/discordgo"
+	"github.com/redis/go-redis/v9"
 )
 
 var discordSession *discordgo.Session
 var eventServiceURL string
+var redisClient *redis.Client
 
 // SetDiscordSession sets the Discord session for the post endpoint
 func SetDiscordSession(session *discordgo.Session) {
@@ -23,6 +25,11 @@ func SetDiscordSession(session *discordgo.Session) {
 // SetEventServiceURL sets the URL for the event service
 func SetEventServiceURL(url string) {
 	eventServiceURL = url
+}
+
+// SetRedisClient sets the Redis client for endpoints
+func SetRedisClient(client *redis.Client) {
+	redisClient = client
 }
 
 // PostRequest represents the structure of a post request

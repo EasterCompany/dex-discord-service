@@ -84,7 +84,7 @@ func GetGuildStructureHandler(w http.ResponseWriter, r *http.Request) {
 			if c.Type == discordgo.ChannelTypeGuildVoice {
 				for _, vs := range guild.VoiceStates {
 					if vs.ChannelID == c.ID {
-						displayName := utils.GetUserDisplayName(discordSession, guild.ID, vs.UserID)
+						displayName := utils.GetUserDisplayName(discordSession, redisClient, guild.ID, vs.UserID)
 						users = append(users, displayName)
 					}
 				}
@@ -178,23 +178,7 @@ func GetChannelContextHandler(w http.ResponseWriter, r *http.Request) {
 			// Use Presences to find online/active users
 			// This avoids listing thousands of offline members
 			for _, p := range guild.Presences {
-				// We need the username. Presence struct has User, but sometimes User is incomplete in Presence updates.
-				// Try to find member in state to get full user object
-				var username string
-				if p.User != nil && p.User.Username != "" {
-					username = p.User.Username
-				} else {
-					member, err := discordSession.State.Member(channel.GuildID, p.User.ID)
-					if err == nil {
-						username = member.User.Username
-					} else {
-						// Fallback to API if not in state (expensive, but rare if presence exists)
-						u, err := discordSession.User(p.User.ID)
-						if err == nil {
-							username = u.Username
-						}
-					}
-				}
+				username := utils.GetUserDisplayName(discordSession, redisClient, channel.GuildID, p.User.ID)
 
 				// Format Activity
 				activityStr := ""
@@ -221,25 +205,13 @@ func GetChannelContextHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func resolveUserStatus(userID, guildID, knownUsername string) UserContext {
-	username := knownUsername
-	status := "offline"
-	activity := ""
-
-	// Try to fetch user if username unknown
-	if username == "" {
-		user, err := discordSession.User(userID)
-		if err == nil {
-			username = user.Username
-		}
+	username := utils.GetUserDisplayName(discordSession, redisClient, guildID, userID)
+	if username == "Unknown User" && knownUsername != "" {
+		username = knownUsername
 	}
 
-	// Check presence if we are in a guild context, otherwise DM presence is unreliable/unavailable usually
-	// But we can check global state if we share a guild with them?
-	// For simplicity in DMs, we default to offline or rely on shared guild presence lookups which is complex.
-	// Let's just leave as offline for DM unless we find a way.
-
-	// Actually, if we have a session, we can try finding presence in ANY guild we share?
-	// Too expensive.
+	status := "offline"
+	activity := ""
 
 	return UserContext{
 		Username: username,
