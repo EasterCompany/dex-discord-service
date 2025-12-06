@@ -245,12 +245,13 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		serverID = m.GuildID
 	}
 
-	// Pre-process content to replace mentions with usernames
+	// Pre-process content to replace mentions with display names
 	content := m.Content
 	for _, user := range m.Mentions {
-		// Replace <@USER_ID> and <@!USER_ID> with @username
-		content = strings.ReplaceAll(content, fmt.Sprintf("<@%s>", user.ID), fmt.Sprintf("@%s", user.Username))
-		content = strings.ReplaceAll(content, fmt.Sprintf("<@!%s>", user.ID), fmt.Sprintf("@%s", user.Username))
+		displayName := utils.GetUserDisplayName(s, m.GuildID, user.ID)
+		// Replace <@USER_ID> and <@!USER_ID> with @DisplayName
+		content = strings.ReplaceAll(content, fmt.Sprintf("<@%s>", user.ID), fmt.Sprintf("@%s", displayName))
+		content = strings.ReplaceAll(content, fmt.Sprintf("<@!%s>", user.ID), fmt.Sprintf("@%s", displayName))
 	}
 
 	var attachments []utils.Attachment
@@ -276,7 +277,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			Type:        utils.EventTypeMessagingUserSentMessage,
 			Source:      "discord",
 			UserID:      m.Author.ID,
-			UserName:    m.Author.Username,
+			UserName:    utils.GetUserDisplayName(s, m.GuildID, m.Author.ID),
 			ChannelID:   m.ChannelID,
 			ChannelName: channelName,
 			ServerID:    serverID,
@@ -301,11 +302,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
-	user, err := s.User(v.UserID)
-	if err != nil {
-		return
-	}
-
 	if v.UserID == masterUserID {
 		if v.ChannelID != "" {
 			if _, err := joinOrMoveToVoiceChannel(s, v.GuildID, v.ChannelID); err != nil {
@@ -334,7 +330,7 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 				Type:        eventType,
 				Source:      "discord",
 				UserID:      v.UserID,
-				UserName:    user.Username,
+				UserName:    utils.GetUserDisplayName(s, v.GuildID, v.UserID),
 				ChannelID:   channelID,
 				ChannelName: channel.Name,
 				ServerID:    v.GuildID,
@@ -354,7 +350,7 @@ func guildMemberAdd(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
 			Type:       utils.EventTypeMessagingUserJoinedServer,
 			Source:     "discord",
 			UserID:     m.User.ID,
-			UserName:   m.User.Username,
+			UserName:   utils.GetUserDisplayName(s, m.GuildID, m.User.ID),
 			ServerID:   m.GuildID,
 			ServerName: guild.Name,
 			Timestamp:  m.JoinedAt,
@@ -445,10 +441,10 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 		transcription = strings.TrimSpace(string(outputBytes))
 	}
 
-	user, _ := s.User(userID)
 	channel, _ := s.Channel(channelID)
+	userName := utils.GetUserDisplayName(s, channel.GuildID, userID)
 
-	log.Printf("user %s in channel %s (lang: %s) said: %s", user.Username, channel.Name, detectedLang, transcription)
+	log.Printf("user %s in channel %s (lang: %s) said: %s", userName, channel.Name, detectedLang, transcription)
 	if englishTranslation != "" {
 		log.Printf("Translation: %s", englishTranslation)
 	}
@@ -458,7 +454,7 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 			Type:        utils.EventTypeMessagingUserTranscribed,
 			Source:      "discord",
 			UserID:      userID,
-			UserName:    user.Username,
+			UserName:    userName,
 			ChannelID:   channelID,
 			ChannelName: channel.Name,
 			ServerID:    channel.GuildID,
