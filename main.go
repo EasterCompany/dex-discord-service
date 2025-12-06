@@ -138,6 +138,9 @@ func main() {
 	// /status endpoint is protected by auth middleware
 	mux.HandleFunc("/status", middleware.ServiceAuthMiddleware(endpoints.UpdateStatusHandler))
 
+	// /typing endpoint is protected by auth middleware
+	mux.HandleFunc("/typing", middleware.ServiceAuthMiddleware(endpoints.TypingHandler))
+
 	// /audio endpoint is public
 	mux.HandleFunc("/audio/", endpoints.AudioHandler)
 
