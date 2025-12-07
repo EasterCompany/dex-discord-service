@@ -421,14 +421,10 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 	// Structure to parse dex-cli JSON output
 	var dexOutput struct {
 		OriginalTranscription string `json:"original_transcription"`
-		DetectedLanguage      string `json:"detected_language"`
-		EnglishTranslation    string `json:"english_translation"`
 		Error                 string `json:"error"`
 	}
 
 	transcription := ""
-	detectedLang := "en"
-	englishTranslation := ""
 
 	// Attempt to parse JSON output
 	if err := json.Unmarshal(outputBytes, &dexOutput); err == nil {
@@ -437,8 +433,6 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 			return
 		}
 		transcription = dexOutput.OriginalTranscription
-		detectedLang = dexOutput.DetectedLanguage
-		englishTranslation = dexOutput.EnglishTranslation
 	} else {
 		// Fallback for non-JSON output (or legacy behavior)
 		transcription = strings.TrimSpace(string(outputBytes))
@@ -447,10 +441,7 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 	channel, _ := s.Channel(channelID)
 	userName := utils.GetUserDisplayName(s, redisClient, channel.GuildID, userID)
 
-	log.Printf("user %s in channel %s (lang: %s) said: %s", userName, channel.Name, detectedLang, transcription)
-	if englishTranslation != "" {
-		log.Printf("Translation: %s", englishTranslation)
-	}
+	log.Printf("user %s in channel %s said: %s", userName, channel.Name, transcription)
 
 	event := utils.UserTranscribedEvent{
 		GenericMessagingEvent: utils.GenericMessagingEvent{
@@ -463,9 +454,7 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 			ServerID:    channel.GuildID,
 			Timestamp:   time.Now(),
 		},
-		Transcription:      transcription,
-		DetectedLanguage:   detectedLang,
-		EnglishTranslation: englishTranslation,
+		Transcription: transcription,
 	}
 	if err := sendEventData(event); err != nil {
 		log.Printf("Error sending transcription event: %v", err)
