@@ -161,8 +161,11 @@ func main() {
 	// /typing endpoint is protected by auth middleware
 	mux.HandleFunc("/typing", middleware.ServiceAuthMiddleware(endpoints.TypingHandler))
 
-	// /audio endpoint is public
+	// /audio endpoint is public (for fetching recordings)
 	mux.HandleFunc("/audio/", endpoints.AudioHandler)
+
+	// /audio/play endpoint is protected by auth middleware (for streaming TTS)
+	mux.HandleFunc("/audio/play", middleware.ServiceAuthMiddleware(endpoints.PlayAudioHandler))
 
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),

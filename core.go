@@ -168,7 +168,7 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 
 func ready(s *discordgo.Session, event *discordgo.Ready) {
 	log.Printf("Logged in as %s#%s", s.State.User.Username, s.State.User.Discriminator)
-	if err := s.UpdateGameStatus(0, "Listening for events..."); err != nil {
+	if err := s.UpdateListeningStatus("for events..."); err != nil {
 		log.Printf("Error updating game status: %v", err)
 	}
 	if defaultVoiceChannelID != "" && serverID != "" {
@@ -210,6 +210,7 @@ func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (
 
 	// Update the global active connection and the recorder's current channel.
 	activeVoiceConnection = vc
+	endpoints.SetActiveVoiceConnection(vc) // Register with endpoints for playback
 	voiceRecorder.SetCurrentChannel(channelID)
 
 	log.Printf("Successfully joined/moved to voice channel %s", channelID)
