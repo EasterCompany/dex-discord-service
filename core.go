@@ -196,7 +196,8 @@ func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (
 	}
 
 	// Join the new channel. This will return a new or existing connection object.
-	vc, err := s.ChannelVoiceJoin(guildID, channelID, true, false)
+	// Set selfMute to false so the bot can speak.
+	vc, err := s.ChannelVoiceJoin(guildID, channelID, false, false)
 	if err != nil {
 		return nil, fmt.Errorf("failed to join voice channel: %w", err)
 	}
