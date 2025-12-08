@@ -440,6 +440,12 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 		transcription = strings.TrimSpace(string(outputBytes))
 	}
 
+	// IGNORE empty or whitespace-only transcriptions
+	if strings.TrimSpace(transcription) == "" {
+		log.Printf("Ignoring empty transcription from user %s in channel %s.", userID, channelID)
+		return
+	}
+
 	channel, _ := s.Channel(channelID)
 	userName := utils.GetUserDisplayName(s, redisClient, channel.GuildID, userID)
 
