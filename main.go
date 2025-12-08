@@ -155,6 +155,9 @@ func main() {
 	// /channel/latest endpoint is protected by auth middleware
 	mux.HandleFunc("/channel/latest", middleware.ServiceAuthMiddleware(endpoints.GetLatestMessageIDHandler))
 
+	// /channel/voice/count endpoint is protected by auth middleware
+	mux.HandleFunc("/channel/voice/count", middleware.ServiceAuthMiddleware(endpoints.GetVoiceChannelUserCountHandler))
+
 	// /status endpoint is protected by auth middleware
 	mux.HandleFunc("/status", middleware.ServiceAuthMiddleware(endpoints.UpdateStatusHandler))
 
