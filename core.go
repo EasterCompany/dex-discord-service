@@ -161,21 +161,102 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 		utils.SetHealthStatus("OK", "Service is running and connected to Discord")
 		endpoints.SetDiscordSession(dg)
 
+		// Join default channel if configured
+		if defaultVoiceChannelID != "" && serverID != "" {
+			log.Printf("Joining default voice channel...")
+			vc, err := joinOrMoveToVoiceChannel(dg, serverID, defaultVoiceChannelID)
+			if err != nil {
+				log.Printf("Error joining default voice channel: %v", err)
+			} else {
+				endpoints.SetActiveVoiceConnection(vc)
+				go playGreeting(dg, vc)
+			}
+		}
+
 		<-ctx.Done()
 		return nil
 	}
 }
 
+func playGreeting(s *discordgo.Session, vc *discordgo.VoiceConnection) {
+	// Simple TTS greeting
+	text := "Dexter online. Systems functional."
+
+	// Create a pipe to stream the TTS audio
+	// Since we are inside the discord service, we can call the TTS service directly via HTTP
+	// or invoke PlayAudioHandler logic. But PlayAudioHandler expects a request body.
+
+	// Better: Call the TTS service to generate audio, and then stream that response to PlayAudioHandler?
+	// No, we can call PlayAudioHandler logic internally or duplicate it.
+	// But simplest is to call our own endpoint? No, we are in the same process.
+
+	// Let's re-use PlayAudioHandler logic but adapted, or just call TTS service and stream to endpoints.PlayAudioHandler via a fake request?
+	// Fake request is easiest to reuse the complex ffmpeg/opus logic.
+
+	ttsURL := "http://localhost:8200/generate"
+	reqBody := map[string]string{
+		"text": text,
+	}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	resp, err := http.Post(ttsURL, "application/json", bytes.NewBuffer(jsonBody))
+	if err != nil {
+		log.Printf("Failed to generate greeting TTS: %v", err)
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		log.Printf("TTS service returned error: %d", resp.StatusCode)
+		return
+	}
+
+	// Now play it. We can create a fake request to our own PlayAudioHandler.
+	// Or we can extract the streaming logic to a helper function.
+	// Let's create a fake request.
+
+	fakeReq, _ := http.NewRequest("POST", "/audio/play", resp.Body)
+	fakeW := &fakeResponseWriter{}
+
+	endpoints.PlayAudioHandler(fakeW, fakeReq)
+
+	// Emit event
+	event := utils.GenericMessagingEvent{
+		Type:        utils.EventTypeMessagingBotVoiceResponse,
+		Source:      "discord",
+		UserID:      s.State.User.ID,
+		UserName:    s.State.User.Username,
+		ChannelID:   vc.ChannelID,
+		ChannelName: "Voice", // Could fetch real name
+		ServerID:    vc.GuildID,
+		Timestamp:   time.Now(),
+	}
+
+	// Custom payload for VoiceResponse
+	voiceEvent := struct {
+		utils.GenericMessagingEvent
+		Content string `json:"content"`
+	}{
+		GenericMessagingEvent: event,
+		Content:               text,
+	}
+
+	if err := sendEventData(voiceEvent); err != nil {
+		log.Printf("Error sending greeting event: %v", err)
+	}
+}
+
+// fakeResponseWriter to satisfy http.ResponseWriter interface
+type fakeResponseWriter struct{}
+
+func (f *fakeResponseWriter) Header() http.Header         { return http.Header{} }
+func (f *fakeResponseWriter) Write(b []byte) (int, error) { return len(b), nil }
+func (f *fakeResponseWriter) WriteHeader(statusCode int)  {}
+
 func ready(s *discordgo.Session, event *discordgo.Ready) {
 	log.Printf("Logged in as %s#%s", s.State.User.Username, s.State.User.Discriminator)
-	if err := s.UpdateListeningStatus("for events..."); err != nil {
+	if err := s.UpdateGameStatus(0, "Listening for events..."); err != nil {
 		log.Printf("Error updating game status: %v", err)
-	}
-	if defaultVoiceChannelID != "" && serverID != "" {
-		log.Printf("Joining default voice channel...")
-		if _, err := joinOrMoveToVoiceChannel(s, serverID, defaultVoiceChannelID); err != nil {
-			log.Printf("Error joining default voice channel: %v", err)
-		}
 	}
 }
 
