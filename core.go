@@ -307,6 +307,33 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 }
 
 func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
+	// Detect if bot joined a voice channel
+	if v.UserID == s.State.User.ID {
+		if v.ChannelID != "" && (v.BeforeUpdate == nil || v.BeforeUpdate.ChannelID != v.ChannelID) {
+			log.Printf("Bot joined voice channel: %s", v.ChannelID)
+			channel, _ := s.Channel(v.ChannelID)
+			channelName := "unknown"
+			if channel != nil {
+				channelName = channel.Name
+			}
+			event := utils.UserVoiceStateChangeEvent{
+				GenericMessagingEvent: utils.GenericMessagingEvent{
+					Type:        utils.EventType("messaging.bot.joined_voice"),
+					Source:      "discord",
+					UserID:      v.UserID,
+					UserName:    s.State.User.Username,
+					ChannelID:   v.ChannelID,
+					ChannelName: channelName,
+					ServerID:    v.GuildID,
+					Timestamp:   time.Now(),
+				},
+			}
+			if err := sendEventData(event); err != nil {
+				log.Printf("Error sending bot voice join event: %v", err)
+			}
+		}
+	}
+
 	if v.UserID == masterUserID {
 		if v.ChannelID != "" {
 			if _, err := joinOrMoveToVoiceChannel(s, v.GuildID, v.ChannelID); err != nil {
