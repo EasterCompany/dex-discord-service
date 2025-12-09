@@ -355,6 +355,11 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 		channelID = v.BeforeUpdate.ChannelID
 	}
 
+	// Do not emit user join/left events for the bot itself
+	if v.UserID == s.State.User.ID {
+		eventType = ""
+	}
+
 	if eventType != "" {
 		channel, _ := s.Channel(channelID)
 		event := utils.UserVoiceStateChangeEvent{
