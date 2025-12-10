@@ -378,15 +378,18 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	// Determine username (handle webhooks specifically)
 	var userName string
+	var eventType utils.EventType
 	if m.WebhookID != "" {
 		userName = m.Author.Username
+		eventType = utils.EventTypeMessagingWebhookMessage
 	} else {
 		userName = utils.GetUserDisplayName(s, redisClient, m.GuildID, m.Author.ID)
+		eventType = utils.EventTypeMessagingUserSentMessage
 	}
 
 	event := utils.UserSentMessageEvent{
 		GenericMessagingEvent: utils.GenericMessagingEvent{
-			Type:        utils.EventTypeMessagingUserSentMessage,
+			Type:        eventType,
 			Source:      "discord",
 			UserID:      m.Author.ID,
 			UserName:    userName,
