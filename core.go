@@ -333,6 +333,24 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	// Pre-process content to replace mentions with display names
 	content := m.Content
+
+	// If content is empty (common with webhooks/embeds), try to build it from embeds
+	if content == "" && len(m.Embeds) > 0 {
+		var parts []string
+		for _, embed := range m.Embeds {
+			if embed.Title != "" {
+				parts = append(parts, embed.Title)
+			}
+			if embed.Description != "" {
+				parts = append(parts, embed.Description)
+			}
+			for _, field := range embed.Fields {
+				parts = append(parts, fmt.Sprintf("%s: %s", field.Name, field.Value))
+			}
+		}
+		content = strings.Join(parts, "\n")
+	}
+
 	for _, user := range m.Mentions {
 		displayName := utils.GetUserDisplayName(s, redisClient, m.GuildID, user.ID)
 		// Replace <@USER_ID> and <@!USER_ID> with @DisplayName
@@ -358,12 +376,20 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		})
 	}
 
+	// Determine username (handle webhooks specifically)
+	var userName string
+	if m.WebhookID != "" {
+		userName = m.Author.Username
+	} else {
+		userName = utils.GetUserDisplayName(s, redisClient, m.GuildID, m.Author.ID)
+	}
+
 	event := utils.UserSentMessageEvent{
 		GenericMessagingEvent: utils.GenericMessagingEvent{
 			Type:        utils.EventTypeMessagingUserSentMessage,
 			Source:      "discord",
 			UserID:      m.Author.ID,
-			UserName:    utils.GetUserDisplayName(s, redisClient, m.GuildID, m.Author.ID),
+			UserName:    userName,
 			ChannelID:   m.ChannelID,
 			ChannelName: channelName,
 			ServerID:    serverID,
