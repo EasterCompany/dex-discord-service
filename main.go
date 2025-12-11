@@ -164,6 +164,9 @@ func main() {
 	// /typing endpoint is protected by auth middleware
 	mux.HandleFunc("/typing", middleware.ServiceAuthMiddleware(endpoints.TypingHandler))
 
+	// /message/delete endpoint is protected by auth middleware
+	mux.HandleFunc("/message/delete", middleware.ServiceAuthMiddleware(endpoints.DeleteMessageHandler))
+
 	// /audio endpoint is public (for fetching recordings)
 	mux.HandleFunc("/audio/", endpoints.AudioHandler)
 
