@@ -45,15 +45,12 @@ func GetCPUUsage() float64 {
 	return cpuPercent
 }
 
-// GetMemoryUsage returns memory usage as a percentage
+// GetMemoryUsage returns memory usage in Megabytes (MB)
 func GetMemoryUsage() float64 {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	// Calculate percentage of allocated memory vs system memory
-	if m.Sys == 0 {
-		return 0.0
-	}
-	return (float64(m.Alloc) / float64(m.Sys)) * 100.0
+	// Return total system memory obtained from the OS in MB
+	return float64(m.Sys) / 1024.0 / 1024.0
 }
 
 // GetMetrics returns the current metrics as a map
