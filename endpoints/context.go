@@ -10,6 +10,7 @@ import (
 )
 
 type UserContext struct {
+	ID       string `json:"id"`
 	Username string `json:"username"`
 	Status   string `json:"status"`
 	Activity string `json:"activity,omitempty"`
@@ -203,6 +204,7 @@ func GetChannelContextHandler(w http.ResponseWriter, r *http.Request) {
 				}
 
 				response.Users = append(response.Users, UserContext{
+					ID:       p.User.ID,
 					Username: username,
 					Status:   string(p.Status),
 					Activity: activityStr,
@@ -257,6 +259,7 @@ func resolveUserStatus(userID, guildID, knownUsername string) UserContext {
 	activity := ""
 
 	return UserContext{
+		ID:       userID,
 		Username: username,
 		Status:   status,
 		Activity: activity,
