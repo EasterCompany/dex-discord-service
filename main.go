@@ -125,6 +125,9 @@ func main() {
 		endpoints.SetRedisClient(redisClient)
 	}
 
+	// Initialize Stream Manager
+	endpoints.InitStreamManager()
+
 	// Start the core event logic in a goroutine
 	go func() {
 		log.Println("Core Logic: Starting...")
@@ -145,6 +148,11 @@ func main() {
 
 	// /post endpoint is protected by auth middleware
 	mux.HandleFunc("/post", middleware.ServiceAuthMiddleware(endpoints.PostHandler))
+
+	// Streaming endpoints
+	mux.HandleFunc("/message/stream/start", middleware.ServiceAuthMiddleware(endpoints.StartStreamHandler))
+	mux.HandleFunc("/message/stream/update", middleware.ServiceAuthMiddleware(endpoints.UpdateStreamHandler))
+	mux.HandleFunc("/message/stream/complete", middleware.ServiceAuthMiddleware(endpoints.CompleteStreamHandler))
 
 	// /context/channel endpoint is protected by auth middleware
 	mux.HandleFunc("/context/channel", middleware.ServiceAuthMiddleware(endpoints.GetChannelContextHandler))
