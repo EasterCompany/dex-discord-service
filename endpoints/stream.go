@@ -95,7 +95,7 @@ func StartStreamHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Send initial message
-	initialContent := "..."
+	initialContent := "<a:loading:1429533488687747182>"
 	if req.Content != "" {
 		initialContent = req.Content
 	}
