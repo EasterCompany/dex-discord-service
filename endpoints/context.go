@@ -178,6 +178,17 @@ func GetChannelContextHandler(w http.ResponseWriter, r *http.Request) {
 			// Use Presences to find online/active users
 			// This avoids listing thousands of offline members
 			for _, p := range guild.Presences {
+				// Check if user has permission to view this channel
+				perms, err := discordSession.UserChannelPermissions(p.User.ID, channelID)
+				if err != nil {
+					// If we can't check permissions, skip (safe default)
+					continue
+				}
+
+				if perms&discordgo.PermissionViewChannel != discordgo.PermissionViewChannel {
+					continue
+				}
+
 				username := utils.GetUserDisplayName(discordSession, redisClient, channel.GuildID, p.User.ID)
 
 				// Format Activity
