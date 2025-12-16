@@ -173,8 +173,49 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 			}
 		}
 
+		// Start Voice Watchdog
+		go voiceWatchdog(dg)
+
 		<-ctx.Done()
 		return nil
+	}
+}
+
+func voiceWatchdog(s *discordgo.Session) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		voiceConnectionMutex.Lock()
+		vc := activeVoiceConnection
+		voiceConnectionMutex.Unlock()
+
+		if vc != nil {
+			if !vc.Ready {
+				log.Printf("Voice Watchdog: Connection detected as not ready. Attempting to recover...")
+
+				// Attempt to re-join the current channel
+				// We use the last known state from the session if possible, or the VC's data
+				guildID := vc.GuildID
+				channelID := vc.ChannelID
+
+				if guildID != "" && channelID != "" {
+					// Force a reconnect by joining again
+					// We don't use joinOrMoveToVoiceChannel to avoid the mutex lock complexity here,
+					// we just call discordgo directly which triggers the state update handler eventually.
+					// Actually, calling ChannelVoiceJoin might be safest.
+					// But we need to avoid deadlock if joinOrMoveToVoiceChannel locks mutex.
+					// voiceWatchdog already unlocked.
+
+					// Just trigger a rejoin
+					log.Printf("Voice Watchdog: Reconnecting to %s...", channelID)
+					_, err := s.ChannelVoiceJoin(guildID, channelID, false, false)
+					if err != nil {
+						log.Printf("Voice Watchdog: Reconnection failed: %v", err)
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -292,8 +333,11 @@ func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (
 
 	// Update the global active connection and the recorder's current channel.
 	activeVoiceConnection = vc
-	endpoints.SetActiveVoiceConnection(vc) // Register with endpoints for playback
 	voiceRecorder.SetCurrentChannel(channelID)
+
+	// Wait for connection to stabilize before enabling mixer
+	time.Sleep(1 * time.Second)
+	endpoints.SetActiveVoiceConnection(vc) // Register with endpoints for playback
 
 	log.Printf("Successfully joined/moved to voice channel %s", channelID)
 	return vc, nil
