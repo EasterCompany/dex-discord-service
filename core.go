@@ -339,7 +339,29 @@ func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (
 	time.Sleep(1 * time.Second)
 	endpoints.SetActiveVoiceConnection(vc) // Register with endpoints for playback
 
-	log.Printf("Successfully joined/moved to voice channel %s", channelID)
+	// Emit event after the mixer is ready
+	log.Printf("Bot joined voice channel: %s", vc.ChannelID)
+	channel, _ := s.Channel(vc.ChannelID)
+	channelName := "unknown"
+	if channel != nil {
+		channelName = channel.Name
+	}
+	event := utils.UserVoiceStateChangeEvent{
+		GenericMessagingEvent: utils.GenericMessagingEvent{
+			Type:        utils.EventType("messaging.bot.joined_voice"),
+			Source:      "discord",
+			UserID:      s.State.User.ID,
+			UserName:    s.State.User.Username,
+			ChannelID:   vc.ChannelID,
+			ChannelName: channelName,
+			ServerID:    vc.GuildID,
+			Timestamp:   time.Now(),
+		},
+	}
+	if err := sendEventData(event); err != nil {
+		log.Printf("Error sending bot voice join event: %v", err)
+	}
+
 	return vc, nil
 }
 
@@ -462,31 +484,35 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 	// Detect if bot joined a voice channel
-	if v.UserID == s.State.User.ID {
-		if v.ChannelID != "" && (v.BeforeUpdate == nil || v.BeforeUpdate.ChannelID != v.ChannelID) {
-			log.Printf("Bot joined voice channel: %s", v.ChannelID)
-			channel, _ := s.Channel(v.ChannelID)
-			channelName := "unknown"
-			if channel != nil {
-				channelName = channel.Name
-			}
-			event := utils.UserVoiceStateChangeEvent{
-				GenericMessagingEvent: utils.GenericMessagingEvent{
-					Type:        utils.EventType("messaging.bot.joined_voice"),
-					Source:      "discord",
-					UserID:      v.UserID,
-					UserName:    s.State.User.Username,
-					ChannelID:   v.ChannelID,
-					ChannelName: channelName,
-					ServerID:    v.GuildID,
-					Timestamp:   time.Now(),
-				},
-			}
-			if err := sendEventData(event); err != nil {
-				log.Printf("Error sending bot voice join event: %v", err)
+	/*
+		// Temporarily disabled: This event is now emitted by joinOrMoveToVoiceChannel
+		// to ensure the audio mixer is ready before the greeting handler is triggered.
+		if v.UserID == s.State.User.ID {
+			if v.ChannelID != "" && (v.BeforeUpdate == nil || v.BeforeUpdate.ChannelID != v.ChannelID) {
+				log.Printf("Bot joined voice channel: %s", v.ChannelID)
+				channel, _ := s.Channel(v.ChannelID)
+				channelName := "unknown"
+				if channel != nil {
+					channelName = channel.Name
+				}
+				event := utils.UserVoiceStateChangeEvent{
+					GenericMessagingEvent: utils.GenericMessagingEvent{
+						Type:        utils.EventType("messaging.bot.joined_voice"),
+						Source:      "discord",
+						UserID:      v.UserID,
+						UserName:    s.State.User.Username,
+						ChannelID:   v.ChannelID,
+						ChannelName: channelName,
+						ServerID:    v.GuildID,
+						Timestamp:   time.Now(),
+					},
+				}
+				if err := sendEventData(event); err != nil {
+					log.Printf("Error sending bot voice join event: %v", err)
+				}
 			}
 		}
-	}
+	*/
 
 	if v.UserID == masterUserID {
 		if v.ChannelID != "" {
