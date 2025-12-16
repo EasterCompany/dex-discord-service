@@ -181,6 +181,9 @@ func main() {
 	// /audio/play endpoint is protected by auth middleware (for streaming TTS)
 	mux.HandleFunc("/audio/play", middleware.ServiceAuthMiddleware(endpoints.PlayAudioHandler))
 
+	// /audio/play_music endpoint is protected by auth middleware (for playing YouTube links)
+	mux.HandleFunc("/audio/play_music", middleware.ServiceAuthMiddleware(endpoints.PlayMusicHandler))
+
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%d", port),
 		Handler:      middleware.CorsMiddleware(mux),
