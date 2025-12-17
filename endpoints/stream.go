@@ -12,7 +12,8 @@ import (
 
 // StartStreamRequest represents the request to start a stream
 type StartStreamRequest struct {
-	ChannelID string `json:"channel_id"`
+	ChannelID      string `json:"channel_id"`
+	InitialContent string `json:"initial_content,omitempty"`
 }
 
 // StartStreamResponse represents the response when a stream starts
@@ -183,8 +184,12 @@ func StartStreamHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use the new typing emoji
-	initialContent := "<a:typing:1449387367315275786>"
+	initialContent := req.InitialContent
+	if initialContent == "" {
+		// Default typing emoji if no custom status provided
+		initialContent = "<a:typing:1449387367315275786>"
+	}
+
 	msg, err := discordSession.ChannelMessageSend(req.ChannelID, initialContent)
 	if err != nil {
 		log.Printf("Error starting stream (sending message): %v, channel_id: %s", err, req.ChannelID)
