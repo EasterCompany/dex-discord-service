@@ -299,6 +299,13 @@ func ready(s *discordgo.Session, event *discordgo.Ready) {
 	if err := s.UpdateGameStatus(0, "Listening for events..."); err != nil {
 		log.Printf("Error updating game status: %v", err)
 	}
+
+	// Trigger catch-up logic for missed messages
+	go func() {
+		// Wait a brief moment to ensure connection stability
+		time.Sleep(5 * time.Second)
+		utils.FetchMissedMessages(s, eventServiceURL, serverID)
+	}()
 }
 
 func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (*discordgo.VoiceConnection, error) {
