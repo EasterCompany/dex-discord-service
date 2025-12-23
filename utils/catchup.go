@@ -75,12 +75,30 @@ func FetchMissedMessages(dg *discordgo.Session, eventServiceURL string, serverID
 				continue
 			}
 
-			// 4. Construct and Emit Event
+			// Construct and Emit Event
 			// We need to replicate the logic from messageCreate in core.go
 			// Ideally refactor messageCreate to use a shared helper, but for now we duplicate carefully.
 
-			// Handle Mentions
 			content := m.Content
+
+			// If content is empty (common with webhooks/embeds), try to build it from embeds
+			if content == "" && len(m.Embeds) > 0 {
+				var parts []string
+				for _, embed := range m.Embeds {
+					if embed.Title != "" {
+						parts = append(parts, embed.Title)
+					}
+					if embed.Description != "" {
+						parts = append(parts, embed.Description)
+					}
+					for _, field := range embed.Fields {
+						parts = append(parts, fmt.Sprintf("%s: %s", field.Name, field.Value))
+					}
+				}
+				content = strings.Join(parts, "\n")
+			}
+
+			// Handle Mentions
 			for _, user := range m.Mentions {
 				// We don't have easy access to Redis here for nickname caching without passing it down.
 				// For catch-up, we might skip the redis lookup or pass nil/implement fallback.
