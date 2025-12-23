@@ -175,6 +175,9 @@ func main() {
 	// /message/delete endpoint is protected by auth middleware
 	mux.HandleFunc("/message/delete", middleware.ServiceAuthMiddleware(endpoints.DeleteMessageHandler))
 
+	// /message/react endpoint is protected by auth middleware
+	mux.HandleFunc("/message/react", middleware.ServiceAuthMiddleware(endpoints.ReactMessageHandler))
+
 	// /audio endpoint is public (for fetching recordings)
 	mux.HandleFunc("/audio/", endpoints.AudioHandler)
 
