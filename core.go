@@ -234,7 +234,7 @@ func playGreeting(s *discordgo.Session, vc *discordgo.VoiceConnection) {
 	// Let's re-use PlayAudioHandler logic but adapted, or just call TTS service and stream to endpoints.PlayAudioHandler via a fake request?
 	// Fake request is easiest to reuse the complex ffmpeg/opus logic.
 
-	ttsURL := "http://localhost:8200/generate"
+	ttsURL := "http://127.0.0.1:8200/generate"
 	reqBody := map[string]string{
 		"text": text,
 	}
