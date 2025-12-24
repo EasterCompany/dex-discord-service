@@ -46,8 +46,11 @@ func FetchMissedMessages(dg *discordgo.Session, eventServiceURL string, serverID
 
 		// 3. Fetch messages since lastSeenTime
 		// Discord API 'After' takes a message ID, not a timestamp.
-		// We can generate a snowflake from the timestamp to use as a lower bound.
-		snowflake := timeToSnowflake(lastSeenTime)
+		// We use a snowflake from lastSeenTime + 1ms to avoid re-fetching the exact last seen message.
+		snowflake := timeToSnowflake(lastSeenTime.Add(1 * time.Millisecond))
+
+		// Pre-fetch last 100 message IDs from event service to prevent duplicate events
+		existingIDs, _ := fetchRecentEventMessageIDs(eventServiceURL, 100)
 
 		messages, err := dg.ChannelMessages(channel.ID, 100, "", snowflake, "")
 		if err != nil {
@@ -68,10 +71,15 @@ func FetchMissedMessages(dg *discordgo.Session, eventServiceURL string, serverID
 				continue
 			}
 
+			// Skip if we already have an event for this message ID
+			if existingIDs[m.ID] {
+				continue
+			}
+
 			msgTime := m.Timestamp
 
 			// Double check it's actually after our last seen time (redundant with snowflake but safe)
-			if msgTime.Before(lastSeenTime) {
+			if !msgTime.After(lastSeenTime) {
 				continue
 			}
 
@@ -161,6 +169,43 @@ func FetchMissedMessages(dg *discordgo.Session, eventServiceURL string, serverID
 		}
 	}
 	log.Println("Catch-up routine complete.")
+}
+
+// fetchRecentEventMessageIDs retrieves the last N message IDs that have already been emitted as events.
+func fetchRecentEventMessageIDs(serviceURL string, limit int) (map[string]bool, error) {
+	url := fmt.Sprintf("%s/events?limit=%d&format=json&event.type=messaging.user.sent_message", serviceURL, limit)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("bad status: %d", resp.StatusCode)
+	}
+
+	var result struct {
+		Events []struct {
+			Event json.RawMessage `json:"event"`
+		} `json:"events"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+
+	idMap := make(map[string]bool)
+	for _, e := range result.Events {
+		var ed map[string]interface{}
+		if err := json.Unmarshal(e.Event, &ed); err == nil {
+			if mid, ok := ed["message_id"].(string); ok {
+				idMap[mid] = true
+			}
+		}
+	}
+
+	return idMap, nil
 }
 
 // timeToSnowflake converts a time.Time to a Discord Snowflake ID
