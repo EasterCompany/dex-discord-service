@@ -53,6 +53,7 @@ type DiscordOptions struct {
 
 // DiscordRoleConfig maps system permission levels to Discord Role IDs
 type DiscordRoleConfig struct {
+	Dexter      string `json:"dexter"`
 	Admin       string `json:"admin"`
 	Moderator   string `json:"moderator"`
 	Contributor string `json:"contributor"`

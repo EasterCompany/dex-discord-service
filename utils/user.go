@@ -14,6 +14,7 @@ import (
 type UserLevel string
 
 const (
+	LevelMe          UserLevel = "Me"
 	LevelMaster      UserLevel = "Master User"
 	LevelAdmin       UserLevel = "Admin"
 	LevelModerator   UserLevel = "Moderator"
@@ -25,7 +26,12 @@ const (
 // GetUserLevel determines the authorization level of a Discord user.
 // It performs a "2FA" check for Master User (Config ID == Server Owner ID).
 func GetUserLevel(s *discordgo.Session, redisClient *redis.Client, guildID, userID string, masterUserID string, roles config.DiscordRoleConfig) UserLevel {
-	// 1. Master User Check (2FA: Config match + Server Owner match)
+	// 1. Me Check (The Bot itself)
+	if s.State.User != nil && userID == s.State.User.ID {
+		return LevelMe
+	}
+
+	// 2. Master User Check (2FA: Config match + Server Owner match)
 	if userID == masterUserID {
 		guild, err := s.State.Guild(guildID)
 		if err == nil && guild.OwnerID == userID {
@@ -38,7 +44,7 @@ func GetUserLevel(s *discordgo.Session, redisClient *redis.Client, guildID, user
 		}
 	}
 
-	// 2. Fetch Member for Role Checks
+	// 3. Fetch Member for Role Checks
 	member, err := s.State.Member(guildID, userID)
 	if err != nil {
 		member, err = s.GuildMember(guildID, userID)
@@ -48,6 +54,11 @@ func GetUserLevel(s *discordgo.Session, redisClient *redis.Client, guildID, user
 		roleMap := make(map[string]bool)
 		for _, rID := range member.Roles {
 			roleMap[rID] = true
+		}
+
+		// Dexter Role check (if somehow not caught by ID check)
+		if roles.Dexter != "" && roleMap[roles.Dexter] {
+			return LevelMe
 		}
 
 		if roles.Admin != "" && roleMap[roles.Admin] {
@@ -64,7 +75,7 @@ func GetUserLevel(s *discordgo.Session, redisClient *redis.Client, guildID, user
 		}
 	}
 
-	// 3. Default to Anyone
+	// 4. Default to Anyone
 	return LevelAnyone
 }
 
