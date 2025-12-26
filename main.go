@@ -131,6 +131,7 @@ func main() {
 	// Start the core event logic in a goroutine
 	go func() {
 		log.Println("Core Logic: Starting...")
+		endpoints.SetUserConfig(options.Discord.MasterUser, options.Discord.Roles)
 		if err := RunCoreLogic(ctx, discordToken, eventServiceURL, options.Discord.MasterUser, options.Discord.DefaultVoiceChannel, options.Discord.ServerID, options.Discord.Roles, redisClient); err != nil {
 			log.Printf("Core Logic Error: %v", err)
 			// Trigger shutdown if core logic fails
@@ -145,6 +146,9 @@ func main() {
 	// Register handlers
 	// /service endpoint is public (for health checks)
 	mux.HandleFunc("/service", endpoints.ServiceHandler)
+
+	// /contacts endpoint is public
+	mux.HandleFunc("/contacts", endpoints.GetContactsHandler)
 
 	// /post endpoint is protected by auth middleware
 	mux.HandleFunc("/post", middleware.ServiceAuthMiddleware(endpoints.PostHandler))

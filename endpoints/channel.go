@@ -6,12 +6,15 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/EasterCompany/dex-discord-service/config"
 	"github.com/bwmarrin/discordgo"
 )
 
 var (
 	discordSession *discordgo.Session
 	sessionMutex   sync.RWMutex
+	masterUserID   string
+	roleConfig     config.DiscordRoleConfig
 )
 
 // SetDiscordSession sets the Discord session for endpoints to use
@@ -19,6 +22,14 @@ func SetDiscordSession(s *discordgo.Session) {
 	sessionMutex.Lock()
 	defer sessionMutex.Unlock()
 	discordSession = s
+}
+
+// SetUserConfig sets the master user and role mapping for handlers
+func SetUserConfig(masterID string, roles config.DiscordRoleConfig) {
+	sessionMutex.Lock()
+	defer sessionMutex.Unlock()
+	masterUserID = masterID
+	roleConfig = roles
 }
 
 // GetVoiceChannelUserCountHandler handles requests to get the number of users in a voice channel.

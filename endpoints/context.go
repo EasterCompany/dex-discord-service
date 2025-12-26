@@ -2,6 +2,7 @@ package endpoints
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"sort"
 
@@ -44,16 +45,123 @@ type GuildStructureResponse struct {
 	Uncategorized []ChannelInfo  `json:"uncategorized"`
 }
 
+type MemberContext struct {
+	ID        string `json:"id"`
+	Username  string `json:"username"`
+	AvatarURL string `json:"avatar_url"`
+	Level     string `json:"level"`
+	Color     int    `json:"color"` // Decimal color from role
+	Status    string `json:"status"`
+}
+
+type ContactsResponse struct {
+	GuildName string          `json:"guild_name"`
+	Members   []MemberContext `json:"members"`
+}
+
+// GetContactsHandler returns a list of all resolved guild members with their system levels.
+func GetContactsHandler(w http.ResponseWriter, r *http.Request) {
+	sessionMutex.RLock()
+	dg := discordSession
+	masterID := masterUserID
+	roles := roleConfig
+	sessionMutex.RUnlock()
+
+	if dg == nil {
+		http.Error(w, "Discord session not ready", http.StatusServiceUnavailable)
+		return
+	}
+
+	// We'll target the primary server ID from config if available, or the first guild
+	targetGuildID := r.URL.Query().Get("guild_id")
+	if targetGuildID == "" {
+		if len(dg.State.Guilds) > 0 {
+			targetGuildID = dg.State.Guilds[0].ID
+		}
+	}
+
+	if targetGuildID == "" {
+		http.Error(w, "No guild found", http.StatusNotFound)
+		return
+	}
+
+	guild, err := dg.State.Guild(targetGuildID)
+	if err != nil {
+		guild, err = dg.Guild(targetGuildID)
+		if err != nil {
+			http.Error(w, "Guild not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	// Fetch all members (this can be expensive on huge guilds, but we assume a manageable size)
+	members, err := dg.GuildMembers(targetGuildID, "", 1000)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("Failed to fetch members: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	response := ContactsResponse{
+		GuildName: guild.Name,
+		Members:   []MemberContext{},
+	}
+
+	// Map presences for status
+	presences := make(map[string]string)
+	for _, p := range guild.Presences {
+		presences[p.User.ID] = string(p.Status)
+	}
+
+	for _, m := range members {
+		level := utils.GetUserLevel(dg, redisClient, targetGuildID, m.User.ID, masterID, roles)
+
+		// Determine most prominent role color (highest position)
+		memberColor := 0
+		var highestRole *discordgo.Role
+		for _, roleID := range m.Roles {
+			for _, r := range guild.Roles {
+				if r.ID == roleID {
+					if highestRole == nil || r.Position > highestRole.Position {
+						highestRole = r
+						memberColor = r.Color
+					}
+				}
+			}
+		}
+
+		status := presences[m.User.ID]
+		if status == "" {
+			status = "offline"
+		}
+
+		response.Members = append(response.Members, MemberContext{
+			ID:        m.User.ID,
+			Username:  utils.GetUserDisplayName(dg, redisClient, targetGuildID, m.User.ID),
+			AvatarURL: m.User.AvatarURL("128"),
+			Level:     string(level),
+			Color:     memberColor,
+			Status:    status,
+		})
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
+}
+
 // GetGuildStructureHandler returns the full channel structure of all connected guilds
 func GetGuildStructureHandler(w http.ResponseWriter, r *http.Request) {
-	if discordSession == nil {
+	sessionMutex.RLock()
+	dg := discordSession
+	sessionMutex.RUnlock()
+
+	if dg == nil {
 		http.Error(w, "Discord session not ready", http.StatusServiceUnavailable)
 		return
 	}
 
 	var response []GuildStructureResponse
 
-	for _, guild := range discordSession.State.Guilds {
+	for _, guild := range dg.State.Guilds {
 		structure := GuildStructureResponse{
 			GuildID:   guild.ID,
 			GuildName: guild.Name,
@@ -85,7 +193,7 @@ func GetGuildStructureHandler(w http.ResponseWriter, r *http.Request) {
 			if c.Type == discordgo.ChannelTypeGuildVoice {
 				for _, vs := range guild.VoiceStates {
 					if vs.ChannelID == c.ID {
-						displayName := utils.GetUserDisplayName(discordSession, redisClient, guild.ID, vs.UserID)
+						displayName := utils.GetUserDisplayName(dg, redisClient, guild.ID, vs.UserID)
 						users = append(users, displayName)
 					}
 				}
@@ -139,7 +247,11 @@ func GetGuildStructureHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetChannelContextHandler returns context information about a channel (users, status)
 func GetChannelContextHandler(w http.ResponseWriter, r *http.Request) {
-	if discordSession == nil {
+	sessionMutex.RLock()
+	dg := discordSession
+	sessionMutex.RUnlock()
+
+	if dg == nil {
 		http.Error(w, "Discord session not ready", http.StatusServiceUnavailable)
 		return
 	}
@@ -150,9 +262,9 @@ func GetChannelContextHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channel, err := discordSession.State.Channel(channelID)
+	channel, err := dg.State.Channel(channelID)
 	if err != nil {
-		channel, err = discordSession.Channel(channelID)
+		channel, err = dg.Channel(channelID)
 		if err != nil {
 			http.Error(w, "Channel not found", http.StatusNotFound)
 			return
@@ -173,14 +285,14 @@ func GetChannelContextHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	} else if channel.GuildID != "" {
 		// Guild Channel
-		guild, err := discordSession.State.Guild(channel.GuildID)
+		guild, err := dg.State.Guild(channel.GuildID)
 		if err == nil {
 			response.GuildName = guild.Name
 			// Use Presences to find online/active users
 			// This avoids listing thousands of offline members
 			for _, p := range guild.Presences {
 				// Check if user has permission to view this channel
-				perms, err := discordSession.UserChannelPermissions(p.User.ID, channelID)
+				perms, err := dg.UserChannelPermissions(p.User.ID, channelID)
 				if err != nil {
 					// If we can't check permissions, skip (safe default)
 					continue
@@ -190,7 +302,7 @@ func GetChannelContextHandler(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 
-				username := utils.GetUserDisplayName(discordSession, redisClient, channel.GuildID, p.User.ID)
+				username := utils.GetUserDisplayName(dg, redisClient, channel.GuildID, p.User.ID)
 
 				// Format Activity
 				activityStr := ""
@@ -219,7 +331,11 @@ func GetChannelContextHandler(w http.ResponseWriter, r *http.Request) {
 
 // GetLatestMessageIDHandler returns the ID of the last message in a channel
 func GetLatestMessageIDHandler(w http.ResponseWriter, r *http.Request) {
-	if discordSession == nil {
+	sessionMutex.RLock()
+	dg := discordSession
+	sessionMutex.RUnlock()
+
+	if dg == nil {
 		http.Error(w, "Discord session not ready", http.StatusServiceUnavailable)
 		return
 	}
@@ -230,10 +346,10 @@ func GetLatestMessageIDHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	channel, err := discordSession.State.Channel(channelID)
+	channel, err := dg.State.Channel(channelID)
 	if err != nil {
 		// Try fetching from API if not in state
-		channel, err = discordSession.Channel(channelID)
+		channel, err = dg.Channel(channelID)
 		if err != nil {
 			http.Error(w, "Channel not found", http.StatusNotFound)
 			return
