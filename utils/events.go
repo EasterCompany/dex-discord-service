@@ -29,6 +29,7 @@ type GenericMessagingEvent struct {
 	Source      string    `json:"source"` // e.g., "discord", "slack"
 	UserID      string    `json:"user_id"`
 	UserName    string    `json:"user_name"`
+	UserLevel   string    `json:"user_level"`
 	ChannelID   string    `json:"channel_id"`
 	ChannelName string    `json:"channel_name"`
 	ServerID    string    `json:"server_id"`

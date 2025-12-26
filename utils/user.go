@@ -5,9 +5,68 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/EasterCompany/dex-discord-service/config"
 	"github.com/bwmarrin/discordgo"
 	"github.com/redis/go-redis/v9"
 )
+
+// UserLevel represents the system authorization tiers
+type UserLevel string
+
+const (
+	LevelMaster      UserLevel = "Master User"
+	LevelAdmin       UserLevel = "Admin"
+	LevelModerator   UserLevel = "Moderator"
+	LevelContributor UserLevel = "Contributor"
+	LevelUser        UserLevel = "User"
+	LevelAnyone      UserLevel = "Anyone"
+)
+
+// GetUserLevel determines the authorization level of a Discord user.
+// It performs a "2FA" check for Master User (Config ID == Server Owner ID).
+func GetUserLevel(s *discordgo.Session, redisClient *redis.Client, guildID, userID string, masterUserID string, roles config.DiscordRoleConfig) UserLevel {
+	// 1. Master User Check (2FA: Config match + Server Owner match)
+	if userID == masterUserID {
+		guild, err := s.State.Guild(guildID)
+		if err == nil && guild.OwnerID == userID {
+			return LevelMaster
+		}
+		// Fallback: fetch from API if not in state
+		guild, err = s.Guild(guildID)
+		if err == nil && guild.OwnerID == userID {
+			return LevelMaster
+		}
+	}
+
+	// 2. Fetch Member for Role Checks
+	member, err := s.State.Member(guildID, userID)
+	if err != nil {
+		member, err = s.GuildMember(guildID, userID)
+	}
+
+	if err == nil && member != nil {
+		roleMap := make(map[string]bool)
+		for _, rID := range member.Roles {
+			roleMap[rID] = true
+		}
+
+		if roles.Admin != "" && roleMap[roles.Admin] {
+			return LevelAdmin
+		}
+		if roles.Moderator != "" && roleMap[roles.Moderator] {
+			return LevelModerator
+		}
+		if roles.Contributor != "" && roleMap[roles.Contributor] {
+			return LevelContributor
+		}
+		if roles.User != "" && roleMap[roles.User] {
+			return LevelUser
+		}
+	}
+
+	// 3. Default to Anyone
+	return LevelAnyone
+}
 
 // GetUserDisplayName returns the most human-readable name for a user:
 // 1. Cached value (if available)

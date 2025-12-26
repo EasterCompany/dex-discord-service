@@ -43,11 +43,20 @@ type OptionsConfig struct {
 
 // DiscordOptions holds Discord-specific settings
 type DiscordOptions struct {
-	Token               string `json:"token"`
-	ServerID            string `json:"server_id"`
-	DebugChannelID      string `json:"debug_channel_id"`
-	MasterUser          string `json:"master_user"`
-	DefaultVoiceChannel string `json:"default_voice_channel"`
+	Token               string            `json:"token"`
+	ServerID            string            `json:"server_id"`
+	DebugChannelID      string            `json:"debug_channel_id"`
+	MasterUser          string            `json:"master_user"`
+	DefaultVoiceChannel string            `json:"default_voice_channel"`
+	Roles               DiscordRoleConfig `json:"roles"`
+}
+
+// DiscordRoleConfig maps system permission levels to Discord Role IDs
+type DiscordRoleConfig struct {
+	Admin       string `json:"admin"`
+	Moderator   string `json:"moderator"`
+	Contributor string `json:"contributor"`
+	User        string `json:"user"`
 }
 
 // SystemConfig represents the structure of system.json
