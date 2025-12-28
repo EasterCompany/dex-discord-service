@@ -15,68 +15,52 @@ type UserLevel string
 
 const (
 	LevelMe          UserLevel = "Me"
-	LevelMaster      UserLevel = "Master User"
+	LevelMaster      UserLevel = "Master"
 	LevelAdmin       UserLevel = "Admin"
 	LevelModerator   UserLevel = "Moderator"
 	LevelContributor UserLevel = "Contributor"
 	LevelUser        UserLevel = "User"
-	LevelAnyone      UserLevel = "Anyone"
 )
 
-// GetUserLevel determines the authorization level of a Discord user.
-// It performs a "2FA" check for Master User (Config ID == Server Owner ID).
-func GetUserLevel(s *discordgo.Session, redisClient *redis.Client, guildID, userID string, masterUserID string, roles config.DiscordRoleConfig) UserLevel {
-	// 1. Me Check (The Bot itself)
-	if s.State.User != nil && userID == s.State.User.ID {
+// GetUserLevel resolves the user level for a Discord user.
+func GetUserLevel(s *discordgo.Session, redisClient *redis.Client, guildID, userID, masterID string, roles config.DiscordRoleConfig) UserLevel {
+	// 1. Self Check
+	if userID == s.State.User.ID {
 		return LevelMe
 	}
 
-	// 2. Master User Check (2FA: Config match + Server Owner match)
-	if userID == masterUserID {
-		guild, err := s.State.Guild(guildID)
-		if err == nil && guild.OwnerID == userID {
-			return LevelMaster
+	// 2. Master Check
+	if userID == masterID {
+		return LevelMaster
+	}
+
+	// 3. Fetch Member for Roles
+	if guildID != "" {
+		member, err := s.State.Member(guildID, userID)
+		if err != nil {
+			member, err = s.GuildMember(guildID, userID)
 		}
-		// Fallback: fetch from API if not in state
-		guild, err = s.Guild(guildID)
-		if err == nil && guild.OwnerID == userID {
-			return LevelMaster
+
+		if err == nil && member != nil {
+			for _, roleID := range member.Roles {
+				if roleID == roles.Admin {
+					return LevelAdmin
+				}
+				if roleID == roles.Moderator {
+					return LevelModerator
+				}
+				if roleID == roles.Contributor {
+					return LevelContributor
+				}
+				if roleID == roles.User {
+					return LevelUser
+				}
+			}
 		}
 	}
 
-	// 3. Fetch Member for Role Checks
-	member, err := s.State.Member(guildID, userID)
-	if err != nil {
-		member, err = s.GuildMember(guildID, userID)
-	}
-
-	if err == nil && member != nil {
-		roleMap := make(map[string]bool)
-		for _, rID := range member.Roles {
-			roleMap[rID] = true
-		}
-
-		// Dexter Role check (if somehow not caught by ID check)
-		if roles.Dexter != "" && roleMap[roles.Dexter] {
-			return LevelMe
-		}
-
-		if roles.Admin != "" && roleMap[roles.Admin] {
-			return LevelAdmin
-		}
-		if roles.Moderator != "" && roleMap[roles.Moderator] {
-			return LevelModerator
-		}
-		if roles.Contributor != "" && roleMap[roles.Contributor] {
-			return LevelContributor
-		}
-		if roles.User != "" && roleMap[roles.User] {
-			return LevelUser
-		}
-	}
-
-	// 4. Default to Anyone
-	return LevelAnyone
+	// 4. Default to User
+	return LevelUser
 }
 
 // GetUserDisplayName returns the most human-readable name for a user:
