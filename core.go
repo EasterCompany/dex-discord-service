@@ -166,6 +166,11 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 		utils.SetHealthStatus("OK", "Service is running and connected to Discord")
 		endpoints.SetDiscordSession(dg)
 
+		// Auto-resolve Role IDs if config is stale
+		if serverID != "" {
+			resolveRoleIDs(dg, serverID)
+		}
+
 		// Enforce roles for all members on boot
 		if serverID != "" {
 			log.Println("Verifying role permissions for all members...")
@@ -199,6 +204,73 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 		log.Println("Core Logic: Shutting down, clearing process info...")
 		utils.ClearProcess(context.Background(), redisClient, "system-discord")
 		return nil
+	}
+}
+
+// resolveRoleIDs attempts to fix invalid role IDs by matching names
+func resolveRoleIDs(s *discordgo.Session, guildID string) {
+	roles, err := s.GuildRoles(guildID)
+	if err != nil {
+		log.Printf("Failed to fetch guild roles for resolution: %v", err)
+		return
+	}
+
+	// Helper to check if ID exists
+	idExists := func(id string) bool {
+		for _, r := range roles {
+			if r.ID == id {
+				return true
+			}
+		}
+		return false
+	}
+
+	// Helper to find ID by name
+	findID := func(names []string) string {
+		for _, r := range roles {
+			for _, n := range names {
+				if strings.EqualFold(r.Name, n) {
+					return r.ID
+				}
+			}
+		}
+		return ""
+	}
+
+	// Resolve User Role
+	if roleConfig.User == "" || !idExists(roleConfig.User) {
+		newID := findID([]string{"User", "Member"})
+		if newID != "" {
+			log.Printf("Configured User role ID invalid. Auto-resolved to '%s' (ID: %s)", "User/Member", newID)
+			roleConfig.User = newID
+		}
+	}
+
+	// Resolve Admin Role
+	if roleConfig.Admin == "" || !idExists(roleConfig.Admin) {
+		newID := findID([]string{"Admin", "Administrator"})
+		if newID != "" {
+			log.Printf("Configured Admin role ID invalid. Auto-resolved to '%s' (ID: %s)", "Admin", newID)
+			roleConfig.Admin = newID
+		}
+	}
+
+	// Resolve Moderator Role
+	if roleConfig.Moderator == "" || !idExists(roleConfig.Moderator) {
+		newID := findID([]string{"Moderator", "Mod"})
+		if newID != "" {
+			log.Printf("Configured Moderator role ID invalid. Auto-resolved to '%s' (ID: %s)", "Moderator", newID)
+			roleConfig.Moderator = newID
+		}
+	}
+
+	// Resolve Contributor Role
+	if roleConfig.Contributor == "" || !idExists(roleConfig.Contributor) {
+		newID := findID([]string{"Contributor"})
+		if newID != "" {
+			log.Printf("Configured Contributor role ID invalid. Auto-resolved to '%s' (ID: %s)", "Contributor", newID)
+			roleConfig.Contributor = newID
+		}
 	}
 }
 
