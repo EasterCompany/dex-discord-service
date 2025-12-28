@@ -3,6 +3,7 @@ package utils
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/EasterCompany/dex-discord-service/config"
@@ -34,11 +35,16 @@ func GetUserLevel(s *discordgo.Session, redisClient *redis.Client, guildID, user
 		return LevelMaster
 	}
 
-	// 3. Fetch Member for Roles
+	// 3. Fetch Member & Guild for Roles
 	if guildID != "" {
 		member, err := s.State.Member(guildID, userID)
 		if err != nil {
 			member, err = s.GuildMember(guildID, userID)
+		}
+
+		guild, gErr := s.State.Guild(guildID)
+		if gErr != nil {
+			guild, _ = s.Guild(guildID)
 		}
 
 		if err == nil && member != nil {
@@ -47,6 +53,7 @@ func GetUserLevel(s *discordgo.Session, redisClient *redis.Client, guildID, user
 				userRoles[r] = true
 			}
 
+			// A. Match by Configured Role IDs
 			if roles.Admin != "" && userRoles[roles.Admin] {
 				return LevelAdmin
 			}
@@ -56,10 +63,32 @@ func GetUserLevel(s *discordgo.Session, redisClient *redis.Client, guildID, user
 			if roles.Contributor != "" && userRoles[roles.Contributor] {
 				return LevelContributor
 			}
-			// User level is default, but if there's a specific role for 'User', we can check it.
-			// However, since we return LevelUser at the end anyway, checking for roles.User here
-			// is only useful if there's a distinction between "User (Role)" and "User (Default)".
-			// For now, let's assuming matching 'User' role explicitly returns LevelUser, which falls through anyway.
+
+			// B. Fallback: Match by Role Name (If Guild Data Available)
+			if guild != nil {
+				for _, rID := range member.Roles {
+					var role *discordgo.Role
+					for _, gRole := range guild.Roles {
+						if gRole.ID == rID {
+							role = gRole
+							break
+						}
+					}
+
+					if role != nil {
+						name := strings.ToLower(role.Name)
+						if name == "admin" || name == "administrator" {
+							return LevelAdmin
+						}
+						if name == "moderator" || name == "mod" {
+							return LevelModerator
+						}
+						if name == "contributor" {
+							return LevelContributor
+						}
+					}
+				}
+			}
 		}
 	}
 
