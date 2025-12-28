@@ -127,6 +127,7 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 	dg.AddHandler(messageCreate)
 	dg.AddHandler(voiceStateUpdate)
 	dg.AddHandler(guildMemberAdd)
+	dg.AddHandler(guildMemberUpdate)
 	dg.AddHandler(func(s *discordgo.Session, d *discordgo.Disconnect) {
 		log.Printf("Discord disconnected, will attempt to reconnect...")
 		utils.IncrementReconnects()
@@ -578,6 +579,8 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 }
 
 func guildMemberAdd(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
+	enforceRoles(s, m.GuildID, m.User.ID, m.Roles)
+
 	guild, _ := s.Guild(m.GuildID)
 	event := utils.UserServerEvent{
 		GenericMessagingEvent: utils.GenericMessagingEvent{
@@ -697,5 +700,89 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 	}
 	if err := sendEventData(event); err != nil {
 		log.Printf("Error sending transcription event: %v", err)
+	}
+}
+
+func guildMemberUpdate(s *discordgo.Session, m *discordgo.GuildMemberUpdate) {
+	enforceRoles(s, m.GuildID, m.User.ID, m.Roles)
+}
+
+func enforceRoles(s *discordgo.Session, guildID, userID string, currentRoles []string) {
+	// Map system roles from config
+	// Priority: 3=Admin, 2=Moderator, 1=Contributor, 0=User
+	systemRoles := make(map[string]int)
+	if roleConfig.Admin != "" {
+		systemRoles[roleConfig.Admin] = 3
+	}
+	if roleConfig.Moderator != "" {
+		systemRoles[roleConfig.Moderator] = 2
+	}
+	if roleConfig.Contributor != "" {
+		systemRoles[roleConfig.Contributor] = 1
+	}
+	if roleConfig.User != "" {
+		systemRoles[roleConfig.User] = 0
+	}
+
+	// Find highest system role user currently has
+	highestRoleID := ""
+	highestLevel := -1
+	hasAnySystemRole := false
+
+	// Create map for fast lookup of current roles
+	currentRoleMap := make(map[string]bool)
+	for _, r := range currentRoles {
+		currentRoleMap[r] = true
+		if level, ok := systemRoles[r]; ok {
+			hasAnySystemRole = true
+			if level > highestLevel {
+				highestLevel = level
+				highestRoleID = r
+			}
+		}
+	}
+
+	// Determine target role
+	targetRoleID := highestRoleID
+	if !hasAnySystemRole {
+		// Default to User if configured
+		if roleConfig.User != "" {
+			targetRoleID = roleConfig.User
+		} else {
+			return // No user role configured, nothing to enforce
+		}
+	}
+
+	// Calculate changes
+	var toAdd []string
+	var toRemove []string
+
+	// 1. Add target if missing
+	if !currentRoleMap[targetRoleID] && targetRoleID != "" {
+		toAdd = append(toAdd, targetRoleID)
+	}
+
+	// 2. Remove other system roles
+	for rID := range systemRoles {
+		if rID != targetRoleID && currentRoleMap[rID] {
+			toRemove = append(toRemove, rID)
+		}
+	}
+
+	if len(toAdd) == 0 && len(toRemove) == 0 {
+		return
+	}
+
+	log.Printf("Enforcing roles for user %s: Adding %v, Removing %v", userID, toAdd, toRemove)
+
+	for _, rID := range toAdd {
+		if err := s.GuildMemberRoleAdd(guildID, userID, rID); err != nil {
+			log.Printf("Failed to add role %s: %v", rID, err)
+		}
+	}
+	for _, rID := range toRemove {
+		if err := s.GuildMemberRoleRemove(guildID, userID, rID); err != nil {
+			log.Printf("Failed to remove role %s: %v", rID, err)
+		}
 	}
 }
