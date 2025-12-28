@@ -42,20 +42,24 @@ func GetUserLevel(s *discordgo.Session, redisClient *redis.Client, guildID, user
 		}
 
 		if err == nil && member != nil {
-			for _, roleID := range member.Roles {
-				if roleID == roles.Admin {
-					return LevelAdmin
-				}
-				if roleID == roles.Moderator {
-					return LevelModerator
-				}
-				if roleID == roles.Contributor {
-					return LevelContributor
-				}
-				if roleID == roles.User {
-					return LevelUser
-				}
+			userRoles := make(map[string]bool)
+			for _, r := range member.Roles {
+				userRoles[r] = true
 			}
+
+			if roles.Admin != "" && userRoles[roles.Admin] {
+				return LevelAdmin
+			}
+			if roles.Moderator != "" && userRoles[roles.Moderator] {
+				return LevelModerator
+			}
+			if roles.Contributor != "" && userRoles[roles.Contributor] {
+				return LevelContributor
+			}
+			// User level is default, but if there's a specific role for 'User', we can check it.
+			// However, since we return LevelUser at the end anyway, checking for roles.User here
+			// is only useful if there's a distinction between "User (Role)" and "User (Default)".
+			// For now, let's assuming matching 'User' role explicitly returns LevelUser, which falls through anyway.
 		}
 	}
 
