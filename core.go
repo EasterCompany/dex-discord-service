@@ -166,6 +166,20 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 		utils.SetHealthStatus("OK", "Service is running and connected to Discord")
 		endpoints.SetDiscordSession(dg)
 
+		// Enforce roles for all members on boot
+		if serverID != "" {
+			log.Println("Verifying role permissions for all members...")
+			members, err := dg.GuildMembers(serverID, "", 1000)
+			if err != nil {
+				log.Printf("Error fetching members for role verification: %v", err)
+			} else {
+				for _, m := range members {
+					enforceRoles(dg, serverID, m.User.ID, m.Roles)
+				}
+				log.Printf("Verified roles for %d members.", len(members))
+			}
+		}
+
 		// Join default channel if configured
 		if defaultVoiceChannelID != "" && serverID != "" {
 			log.Printf("Joining default voice channel...")

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/EasterCompany/dex-discord-service/utils"
 	"github.com/bwmarrin/discordgo"
@@ -85,6 +86,17 @@ func GetContactsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 1. Check Cache
+	cacheKey := fmt.Sprintf("cache:contacts:%s", targetGuildID)
+	if redisClient != nil {
+		cachedData, err := redisClient.Get(r.Context(), cacheKey).Result()
+		if err == nil && cachedData != "" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(cachedData))
+			return
+		}
+	}
+
 	guild, err := dg.State.Guild(targetGuildID)
 	if err != nil {
 		guild, err = dg.Guild(targetGuildID)
@@ -142,6 +154,14 @@ func GetContactsHandler(w http.ResponseWriter, r *http.Request) {
 			Color:     memberColor,
 			Status:    status,
 		})
+	}
+
+	// 2. Save to Cache
+	if redisClient != nil {
+		jsonBytes, err := json.Marshal(response)
+		if err == nil {
+			redisClient.Set(r.Context(), cacheKey, jsonBytes, 5*time.Minute)
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
