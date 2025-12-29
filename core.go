@@ -151,7 +151,6 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 		}
 
 		log.Println("Core Logic: Announcing connection to event service...")
-		utils.ReportProcess(ctx, redisClient, "system-discord", "connected")
 		connectionEvent := utils.BotStatusUpdateEvent{
 			Type:      utils.EventTypeMessagingBotStatusUpdate,
 			Source:    "discord",
@@ -201,8 +200,6 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 		go voiceWatchdog(dg)
 
 		<-ctx.Done()
-		log.Println("Core Logic: Shutting down, clearing process info...")
-		utils.ClearProcess(context.Background(), redisClient, "system-discord")
 		return nil
 	}
 }
