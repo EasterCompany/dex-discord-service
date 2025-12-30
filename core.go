@@ -577,6 +577,26 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 
+	// Also check for role mentions
+	if !event.MentionedBot && len(m.MentionRoles) > 0 && m.GuildID != "" {
+		member, err := s.GuildMember(m.GuildID, s.State.User.ID)
+		if err == nil {
+			for _, roleID := range m.MentionRoles {
+				for _, memberRole := range member.Roles {
+					if roleID == memberRole {
+						event.MentionedBot = true
+						break
+					}
+				}
+				if event.MentionedBot {
+					break
+				}
+			}
+		} else {
+			log.Printf("Failed to get bot member for role mention check: %v", err)
+		}
+	}
+
 	if err := sendEventData(event); err != nil {
 		log.Printf("Error sending message event: %v", err)
 	}
