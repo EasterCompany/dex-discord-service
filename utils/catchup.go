@@ -218,7 +218,7 @@ func timeToSnowflake(t time.Time) string {
 // fetchLatestEventTimestamp queries the event service for the latest messaging event
 func fetchLatestEventTimestamp(serviceURL string) (time.Time, error) {
 	// Query parameters to get 1 latest event of type user sent message
-	url := fmt.Sprintf("%s/events?limit=1&format=json&event.type=messaging.user.sent_message", serviceURL)
+	url := fmt.Sprintf("%s/events?max_length=1&format=json&event.type=messaging.user.sent_message", serviceURL)
 
 	resp, err := http.Get(url)
 	if err != nil {
