@@ -18,18 +18,16 @@ func FetchMissedMessages(dg *discordgo.Session, eventServiceURL string, serverID
 	log.Println("Starting catch-up routine...")
 
 	// 1. Determine the "last seen" timestamp.
-	// Ideally, query dex-event-service for the latest 'messaging.user.sent_message' event.
-	// For now, we'll default to a safe lookback window if we can't get it, or maybe just 1 hour.
-	// Let's try to fetch the latest event from the timeline.
-	lastSeenTime := time.Now().Add(-1 * time.Hour) // Default: 1 hour ago
-
+	// We MUST find a reliable timestamp from the event service.
+	// If we cannot find one, we assume no backfill is safe/needed to avoid duplication.
 	latestEventTime, err := fetchLatestEventTimestamp(eventServiceURL)
-	if err == nil && !latestEventTime.IsZero() {
-		lastSeenTime = latestEventTime
-		log.Printf("Last known event timestamp: %s", lastSeenTime.Format(time.RFC3339))
-	} else {
-		log.Printf("Could not fetch last event timestamp (err: %v), defaulting to 1 hour lookback: %s", err, lastSeenTime.Format(time.RFC3339))
+	if err != nil || latestEventTime.IsZero() {
+		log.Printf("Catch-up: Could not fetch last event timestamp (err: %v). Aborting backfill to prevent duplication.", err)
+		return
 	}
+
+	lastSeenTime := latestEventTime
+	log.Printf("Last known event timestamp: %s", lastSeenTime.Format(time.RFC3339))
 
 	// 2. Get all text channels in the guild.
 	channels, err := dg.GuildChannels(serverID)
@@ -49,8 +47,9 @@ func FetchMissedMessages(dg *discordgo.Session, eventServiceURL string, serverID
 		// We use a snowflake from lastSeenTime + 1ms to avoid re-fetching the exact last seen message.
 		snowflake := timeToSnowflake(lastSeenTime.Add(1 * time.Millisecond))
 
-		// Pre-fetch last 100 message IDs from event service to prevent duplicate events
-		existingIDs, _ := fetchRecentEventMessageIDs(eventServiceURL, 100)
+		// Pre-fetch last 10000 message IDs from event service to prevent duplicate events
+		// This deep search is critical to ensure we don't re-process messages we've already handled.
+		existingIDs, _ := fetchRecentEventMessageIDs(eventServiceURL, 10000)
 
 		messages, err := dg.ChannelMessages(channel.ID, 100, "", snowflake, "")
 		if err != nil {
