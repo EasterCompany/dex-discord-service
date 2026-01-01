@@ -150,6 +150,15 @@ func main() {
 	// /contacts endpoint is public
 	mux.HandleFunc("/contacts", endpoints.GetContactsHandler)
 
+	// /profile/ endpoint is public for GET, protected for POST
+	mux.HandleFunc("/profile/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost || r.Method == http.MethodPut {
+			middleware.ServiceAuthMiddleware(endpoints.UpdateProfileHandler)(w, r)
+		} else {
+			endpoints.GetProfileHandler(w, r)
+		}
+	})
+
 	// /post endpoint is protected by auth middleware
 	mux.HandleFunc("/post", middleware.ServiceAuthMiddleware(endpoints.PostHandler))
 
