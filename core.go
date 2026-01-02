@@ -860,17 +860,38 @@ func enforceRoles(s *discordgo.Session, guildID, userID string, currentRoles []s
 	colorRoleIDs := make(map[string]string)
 	var userColorRoles []string
 
-	// Find role IDs for colors in the guild (cache this if possible, but for now lookup is safer)
-	roles, err := s.GuildRoles(guildID)
-	if err == nil {
-		for _, r := range roles {
-			for _, colorName := range cs2Colors {
-				if strings.EqualFold(r.Name, colorName) {
-					colorRoleIDs[colorName] = r.ID
-					// Check if user has this color
-					if currentRoleMap[r.ID] {
-						userColorRoles = append(userColorRoles, r.ID)
+	// Try to fetch color roles from Redis cache
+	cacheKey := fmt.Sprintf("discord:roles:colors:%s", guildID)
+	cachedColors, err := redisClient.HGetAll(context.Background(), cacheKey).Result()
+
+	if err == nil && len(cachedColors) > 0 {
+		// Use cached roles
+		colorRoleIDs = cachedColors
+		// We still need to check if the user HAS these roles using currentRoles
+		for _, colorID := range colorRoleIDs {
+			if currentRoleMap[colorID] {
+				userColorRoles = append(userColorRoles, colorID)
+			}
+		}
+	} else {
+		// Cache miss or empty, fetch from Discord
+		roles, err := s.GuildRoles(guildID)
+		if err == nil {
+			for _, r := range roles {
+				for _, colorName := range cs2Colors {
+					if strings.EqualFold(r.Name, colorName) {
+						colorRoleIDs[colorName] = r.ID
+						// Check if user has this color
+						if currentRoleMap[r.ID] {
+							userColorRoles = append(userColorRoles, r.ID)
+						}
 					}
+				}
+			}
+			// Update cache
+			if len(colorRoleIDs) > 0 {
+				if err := redisClient.HMSet(context.Background(), cacheKey, colorRoleIDs).Err(); err == nil {
+					redisClient.Expire(context.Background(), cacheKey, 24*time.Hour)
 				}
 			}
 		}
