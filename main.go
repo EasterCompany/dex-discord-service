@@ -173,6 +173,9 @@ func main() {
 	// /context/guild endpoint is protected by auth middleware
 	mux.HandleFunc("/context/guild", middleware.ServiceAuthMiddleware(endpoints.GetGuildStructureHandler))
 
+	// /member/ endpoint is protected by auth middleware
+	mux.HandleFunc("/member/", middleware.ServiceAuthMiddleware(endpoints.GetMemberHandler))
+
 	// /channel/latest endpoint is protected by auth middleware
 	mux.HandleFunc("/channel/latest", middleware.ServiceAuthMiddleware(endpoints.GetLatestMessageIDHandler))
 

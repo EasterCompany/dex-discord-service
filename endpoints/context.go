@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/EasterCompany/dex-discord-service/utils"
@@ -379,6 +380,84 @@ func GetLatestMessageIDHandler(w http.ResponseWriter, r *http.Request) {
 	response := map[string]string{
 		"channel_id":      channel.ID,
 		"last_message_id": channel.LastMessageID,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(response)
+}
+
+// GetMemberHandler returns detailed information about a specific member
+func GetMemberHandler(w http.ResponseWriter, r *http.Request) {
+	sessionMutex.RLock()
+	dg := discordSession
+	masterID := masterUserID
+	roles := roleConfig
+	sessionMutex.RUnlock()
+
+	if dg == nil {
+		http.Error(w, "Discord session not ready", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Path is /member/{id}
+	parts := strings.Split(r.URL.Path, "/")
+	if len(parts) < 3 || parts[2] == "" {
+		http.Error(w, "Invalid user ID", http.StatusBadRequest)
+		return
+	}
+	userID := parts[2]
+
+	// Find the guild ID from query param or default to first guild
+	targetGuildID := r.URL.Query().Get("guild_id")
+	if targetGuildID == "" {
+		if len(dg.State.Guilds) > 0 {
+			targetGuildID = dg.State.Guilds[0].ID
+		}
+	}
+
+	if targetGuildID == "" {
+		http.Error(w, "No guild found", http.StatusNotFound)
+		return
+	}
+
+	member, err := dg.State.Member(targetGuildID, userID)
+	if err != nil {
+		member, err = dg.GuildMember(targetGuildID, userID)
+		if err != nil {
+			http.Error(w, "Member not found", http.StatusNotFound)
+			return
+		}
+	}
+
+	guild, err := dg.State.Guild(targetGuildID)
+	if err != nil {
+		guild, _ = dg.Guild(targetGuildID)
+	}
+
+	level := utils.GetUserLevel(dg, redisClient, targetGuildID, userID, masterID, roles)
+
+	memberColor := 0
+	if guild != nil {
+		var highestRole *discordgo.Role
+		for _, roleID := range member.Roles {
+			for _, r := range guild.Roles {
+				if r.ID == roleID {
+					if highestRole == nil || r.Position > highestRole.Position {
+						highestRole = r
+						memberColor = r.Color
+					}
+				}
+			}
+		}
+	}
+
+	response := MemberContext{
+		ID:        userID,
+		Username:  utils.GetUserDisplayName(dg, redisClient, targetGuildID, userID),
+		AvatarURL: member.User.AvatarURL("128"),
+		Level:     string(level),
+		Color:     memberColor,
+		Status:    "unknown", // Presence is harder to get for single user without searching
 	}
 
 	w.Header().Set("Content-Type", "application/json")
