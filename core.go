@@ -811,7 +811,7 @@ func guildMemberUpdate(s *discordgo.Session, m *discordgo.GuildMemberUpdate) {
 }
 
 func enforceRoles(s *discordgo.Session, guildID, userID string, currentRoles []string) {
-	// Map system roles from config
+	// --- 1. System Permission Roles Enforcement ---
 	// Priority: 3=Admin, 2=Moderator, 1=Contributor, 0=User
 	systemRoles := make(map[string]int)
 	if roleConfig.Admin != "" {
@@ -845,30 +845,87 @@ func enforceRoles(s *discordgo.Session, guildID, userID string, currentRoles []s
 		}
 	}
 
-	// Determine target role
-	targetRoleID := highestRoleID
+	// Determine target system role
+	targetSystemRoleID := highestRoleID
 	if !hasAnySystemRole {
 		// Default to User if configured
 		if roleConfig.User != "" {
-			targetRoleID = roleConfig.User
-		} else {
-			return // No user role configured, nothing to enforce
+			targetSystemRoleID = roleConfig.User
 		}
 	}
 
-	// Calculate changes
+	// --- 2. CS2 Color Roles Enforcement ---
+	// Define CS2 color names
+	cs2Colors := []string{"Blue", "Orange", "Purple", "Yellow", "Green"}
+	colorRoleIDs := make(map[string]string)
+	var userColorRoles []string
+
+	// Find role IDs for colors in the guild (cache this if possible, but for now lookup is safer)
+	roles, err := s.GuildRoles(guildID)
+	if err == nil {
+		for _, r := range roles {
+			for _, colorName := range cs2Colors {
+				if strings.EqualFold(r.Name, colorName) {
+					colorRoleIDs[colorName] = r.ID
+					// Check if user has this color
+					if currentRoleMap[r.ID] {
+						userColorRoles = append(userColorRoles, r.ID)
+					}
+				}
+			}
+		}
+	}
+
+	targetColorRoleID := ""
+	if len(userColorRoles) == 1 {
+		// User has exactly one color, keep it
+		targetColorRoleID = userColorRoles[0]
+	} else if len(userColorRoles) > 1 {
+		// User has multiple colors, keep the first one found (or random?)
+		// Let's keep the first one to be stable
+		targetColorRoleID = userColorRoles[0]
+	} else {
+		// User has NO color, pick a random one
+		// We need to know available color IDs first
+		var availableColors []string
+		for _, id := range colorRoleIDs {
+			availableColors = append(availableColors, id)
+		}
+		if len(availableColors) > 0 {
+			// Simple random selection
+			// Use time as seed for basic randomness
+			idx := time.Now().UnixNano() % int64(len(availableColors))
+			targetColorRoleID = availableColors[idx]
+		}
+	}
+
+	// --- 3. Apply Changes ---
 	var toAdd []string
 	var toRemove []string
 
-	// 1. Add target if missing
-	if !currentRoleMap[targetRoleID] && targetRoleID != "" {
-		toAdd = append(toAdd, targetRoleID)
+	// System Role Changes
+	if targetSystemRoleID != "" {
+		if !currentRoleMap[targetSystemRoleID] {
+			toAdd = append(toAdd, targetSystemRoleID)
+		}
+		// Remove other system roles (Exclusive Badge Logic)
+		for rID := range systemRoles {
+			if rID != targetSystemRoleID && currentRoleMap[rID] {
+				toRemove = append(toRemove, rID)
+			}
+		}
 	}
 
-	// 2. Remove other system roles
-	for rID := range systemRoles {
-		if rID != targetRoleID && currentRoleMap[rID] {
-			toRemove = append(toRemove, rID)
+	// Color Role Changes
+	if targetColorRoleID != "" {
+		if !currentRoleMap[targetColorRoleID] {
+			toAdd = append(toAdd, targetColorRoleID)
+		}
+		// Remove other color roles (Exclusive Color Logic)
+		for _, rID := range colorRoleIDs {
+			if rID != targetColorRoleID && currentRoleMap[rID] {
+				toRemove = append(toRemove, rID)
+			}
 		}
 	}
 
