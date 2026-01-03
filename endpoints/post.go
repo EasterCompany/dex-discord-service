@@ -3,6 +3,7 @@ package endpoints
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -30,6 +31,7 @@ func SetRedisClient(client *redis.Client) {
 type PostRequest struct {
 	ServerID  string                 `json:"server_id"`  // Discord Guild/Server ID
 	ChannelID string                 `json:"channel_id"` // Discord Channel ID
+	UserID    string                 `json:"user_id"`    // NEW: For DM support
 	Content   string                 `json:"content"`    // Text message content (optional if image provided)
 	ImageURL  string                 `json:"image_url"`  // URL to image to send (optional)
 	Metadata  map[string]interface{} `json:"metadata"`   // Optional metadata (e.g., debug info)
@@ -69,10 +71,21 @@ func PostHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Resolve Channel ID if UserID is provided (DM Support)
+	if req.ChannelID == "" && req.UserID != "" {
+		channel, err := discordSession.UserChannelCreate(req.UserID)
+		if err != nil {
+			log.Printf("POST ERROR: Failed to create DM channel with user %s: %v", req.UserID, err)
+			http.Error(w, fmt.Sprintf("Failed to create DM channel: %v", err), http.StatusInternalServerError)
+			return
+		}
+		req.ChannelID = channel.ID
+	}
+
 	// Validate required fields
 	if req.ChannelID == "" {
-		log.Printf("POST ERROR: Missing channel_id")
-		http.Error(w, "channel_id is required", http.StatusBadRequest)
+		log.Printf("POST ERROR: Missing channel_id or user_id")
+		http.Error(w, "channel_id or user_id is required", http.StatusBadRequest)
 		return
 	}
 
