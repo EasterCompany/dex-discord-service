@@ -172,7 +172,7 @@ func FetchMissedMessages(dg *discordgo.Session, eventServiceURL string, serverID
 
 // fetchRecentEventMessageIDs retrieves the last N message IDs that have already been emitted as events.
 func fetchRecentEventMessageIDs(serviceURL string, limit int) (map[string]bool, error) {
-	url := fmt.Sprintf("%s/events?limit=%d&format=json&event.type=messaging.user.sent_message", serviceURL, limit)
+	url := fmt.Sprintf("%s/events?max_length=%d&format=json&event.type=messaging.user.sent_message", serviceURL, limit)
 
 	resp, err := http.Get(url)
 	if err != nil {
