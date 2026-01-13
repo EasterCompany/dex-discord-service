@@ -238,7 +238,7 @@ func resolveRoleIDs(s *discordgo.Session, guildID string) {
 	if roleConfig.User == "" || !idExists(roleConfig.User) {
 		newID := findID([]string{"User", "Member"})
 		if newID != "" {
-			log.Printf("Configured User role ID invalid. Auto-resolved to '%s' (ID: %s)", "User/Member", newID)
+			log.Printf("Configured User role ID missing or invalid. Auto-resolved to '%s' (ID: %s)", "User", newID)
 			roleConfig.User = newID
 		}
 	}
@@ -247,7 +247,7 @@ func resolveRoleIDs(s *discordgo.Session, guildID string) {
 	if roleConfig.Admin == "" || !idExists(roleConfig.Admin) {
 		newID := findID([]string{"Admin", "Administrator"})
 		if newID != "" {
-			log.Printf("Configured Admin role ID invalid. Auto-resolved to '%s' (ID: %s)", "Admin", newID)
+			log.Printf("Configured Admin role ID missing or invalid. Auto-resolved to '%s' (ID: %s)", "Admin", newID)
 			roleConfig.Admin = newID
 		}
 	}
@@ -256,7 +256,7 @@ func resolveRoleIDs(s *discordgo.Session, guildID string) {
 	if roleConfig.Moderator == "" || !idExists(roleConfig.Moderator) {
 		newID := findID([]string{"Moderator", "Mod"})
 		if newID != "" {
-			log.Printf("Configured Moderator role ID invalid. Auto-resolved to '%s' (ID: %s)", "Moderator", newID)
+			log.Printf("Configured Moderator role ID missing or invalid. Auto-resolved to '%s' (ID: %s)", "Moderator", newID)
 			roleConfig.Moderator = newID
 		}
 	}
@@ -265,7 +265,7 @@ func resolveRoleIDs(s *discordgo.Session, guildID string) {
 	if roleConfig.Contributor == "" || !idExists(roleConfig.Contributor) {
 		newID := findID([]string{"Contributor"})
 		if newID != "" {
-			log.Printf("Configured Contributor role ID invalid. Auto-resolved to '%s' (ID: %s)", "Contributor", newID)
+			log.Printf("Configured Contributor role ID missing or invalid. Auto-resolved to '%s' (ID: %s)", "Contributor", newID)
 			roleConfig.Contributor = newID
 		}
 	}
