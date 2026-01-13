@@ -958,12 +958,20 @@ func enforceRoles(s *discordgo.Session, guildID, userID string, currentRoles []s
 
 	for _, rID := range toAdd {
 		if err := s.GuildMemberRoleAdd(guildID, userID, rID); err != nil {
-			log.Printf("Failed to add role %s: %v", rID, err)
+			if strings.Contains(err.Error(), "50013") {
+				log.Printf("WARNING: Permission Denied (50013) adding role %s. Hint: Drag Dexter's role ABOVE this role in Discord Server Settings.", rID)
+			} else {
+				log.Printf("Failed to add role %s: %v", rID, err)
+			}
 		}
 	}
 	for _, rID := range toRemove {
 		if err := s.GuildMemberRoleRemove(guildID, userID, rID); err != nil {
-			log.Printf("Failed to remove role %s: %v", rID, err)
+			if strings.Contains(err.Error(), "50013") {
+				log.Printf("WARNING: Permission Denied (50013) removing role %s. Hint: Drag Dexter's role ABOVE this role in Discord Server Settings.", rID)
+			} else {
+				log.Printf("Failed to remove role %s: %v", rID, err)
+			}
 		}
 	}
 }
