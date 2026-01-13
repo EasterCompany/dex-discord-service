@@ -68,6 +68,5 @@ func UpdateStatusHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Bot status updated: [%s] %s (Type: %d)", req.OnlineStatus, req.StatusText, req.ActivityType)
 	w.WriteHeader(http.StatusOK)
 }
