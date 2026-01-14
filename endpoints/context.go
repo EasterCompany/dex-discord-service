@@ -128,15 +128,18 @@ func GetContactsHandler(w http.ResponseWriter, r *http.Request) {
 	for _, m := range members {
 		level := utils.GetUserLevel(dg, redisClient, targetGuildID, m.User.ID, masterID, roles)
 
-		// Determine most prominent role color (highest position)
+		// Determine most prominent role color (highest position with a color)
 		memberColor := 0
-		var highestRole *discordgo.Role
+		highestColorPosition := -1
+
 		for _, roleID := range m.Roles {
 			for _, r := range guild.Roles {
 				if r.ID == roleID {
-					if highestRole == nil || r.Position > highestRole.Position {
-						highestRole = r
-						memberColor = r.Color
+					if r.Color != 0 {
+						if r.Position > highestColorPosition {
+							highestColorPosition = r.Position
+							memberColor = r.Color
+						}
 					}
 				}
 			}
@@ -438,13 +441,15 @@ func GetMemberHandler(w http.ResponseWriter, r *http.Request) {
 
 	memberColor := 0
 	if guild != nil {
-		var highestRole *discordgo.Role
+		highestColorPosition := -1
 		for _, roleID := range member.Roles {
 			for _, r := range guild.Roles {
 				if r.ID == roleID {
-					if highestRole == nil || r.Position > highestRole.Position {
-						highestRole = r
-						memberColor = r.Color
+					if r.Color != 0 {
+						if r.Position > highestColorPosition {
+							highestColorPosition = r.Position
+							memberColor = r.Color
+						}
 					}
 				}
 			}
