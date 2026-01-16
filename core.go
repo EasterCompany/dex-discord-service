@@ -534,13 +534,19 @@ func setupVoiceReceivers(s *discordgo.Session, vc *discordgo.VoiceConnection) {
 	})
 
 	go func() {
+		pktCount := 0
 		for p := range vc.OpusRecv {
 			if p != nil {
+				pktCount++
+				if pktCount%250 == 0 { // Log every ~5 seconds of audio (50 packets/sec)
+					log.Printf("DEBUG: Rx Voice Packet SSRC %d (Count %d)", p.SSRC, pktCount)
+				}
 				if err := voiceRecorder.ProcessVoicePacket(p.SSRC, p); err != nil {
 					log.Printf("Error processing voice packet: %v", err)
 				}
 			}
 		}
+		log.Printf("DEBUG: OpusRecv channel closed for %s", vc.ChannelID)
 	}()
 }
 

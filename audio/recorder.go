@@ -253,6 +253,7 @@ func (vr *VoiceRecorder) ProcessVoicePacket(ssrc uint32, packet *discordgo.Packe
 
 	if !exists {
 		// Unknown SSRC for current channel, skip
+		// log.Printf("DEBUG: Unknown SSRC %d for channel %s", ssrc, channelID) // Uncomment for deep debugging
 		return nil
 	}
 
