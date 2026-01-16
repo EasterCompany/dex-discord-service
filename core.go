@@ -282,26 +282,40 @@ func voiceWatchdog(s *discordgo.Session) {
 
 		if vc != nil {
 			if !vc.Ready {
-				log.Printf("Voice Watchdog: Connection detected as not ready. Attempting to recover...")
+				log.Printf("Voice Watchdog: Connection detected as not ready. Initiating Hard Reset...")
 
-				// Attempt to re-join the current channel
-				// We use the last known state from the session if possible, or the VC's data
 				guildID := vc.GuildID
 				channelID := vc.ChannelID
 
 				if guildID != "" && channelID != "" {
-					// Force a reconnect by joining again
-					// We don't use joinOrMoveToVoiceChannel to avoid the mutex lock complexity here,
-					// we just call discordgo directly which triggers the state update handler eventually.
-					// Actually, calling ChannelVoiceJoin might be safest.
-					// But we need to avoid deadlock if joinOrMoveToVoiceChannel locks mutex.
-					// voiceWatchdog already unlocked.
+					// 1. Explicitly Disconnect to clear session state on Discord's end
+					log.Printf("Voice Watchdog: Disconnecting from %s...", channelID)
+					_ = vc.Disconnect()
 
-					// Just trigger a rejoin
-					log.Printf("Voice Watchdog: Reconnecting to %s...", channelID)
-					_, err := s.ChannelVoiceJoin(guildID, channelID, false, false)
+					// Wait for state to clear
+					time.Sleep(1 * time.Second)
+
+					// 2. Re-join
+					log.Printf("Voice Watchdog: Re-joining %s...", channelID)
+					newVC, err := s.ChannelVoiceJoin(guildID, channelID, false, false)
 					if err != nil {
-						log.Printf("Voice Watchdog: Reconnection failed: %v", err)
+						log.Printf("Voice Watchdog: Re-join failed: %v", err)
+					} else {
+						log.Printf("Voice Watchdog: Re-join successful.")
+
+						// 3. Update Global State
+						voiceConnectionMutex.Lock()
+						activeVoiceConnection = newVC
+						voiceConnectionMutex.Unlock()
+
+						endpoints.SetActiveVoiceConnection(newVC)
+
+						// Re-attach listeners for VAD
+						setupVoiceReceivers(s, newVC)
+
+						if voiceRecorder != nil {
+							voiceRecorder.SetCurrentChannel(channelID)
+						}
 					}
 				}
 			}
