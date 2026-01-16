@@ -26,6 +26,7 @@ import (
 const MaxAttachmentSize = 10 * 1024 * 1024 // 10 MiB
 
 var eventServiceURL string
+var ttsServiceURL string
 var masterUserID string
 var defaultVoiceChannelID string
 var serverID string
@@ -36,8 +37,9 @@ var activeVoiceConnection *discordgo.VoiceConnection
 var voiceConnectionMutex sync.Mutex
 
 // RunCoreLogic manages the Discord session and its event handlers.
-func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultChannel, guildID string, roles config.DiscordRoleConfig, rc *redis.Client) error {
+func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, masterUser, defaultChannel, guildID string, roles config.DiscordRoleConfig, rc *redis.Client) error {
 	eventServiceURL = serviceURL
+	ttsServiceURL = ttsURL
 	endpoints.SetEventServiceURL(serviceURL)
 	masterUserID = masterUser
 	defaultVoiceChannelID = defaultChannel
@@ -115,6 +117,19 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 		return err
 	}
 	defer func() {
+		// Explicitly disconnect from voice before closing the session
+		voiceConnectionMutex.Lock()
+		if activeVoiceConnection != nil {
+			log.Println("Graceful Shutdown: Disconnecting from voice channel...")
+			if err := activeVoiceConnection.Disconnect(); err != nil {
+				log.Printf("Error disconnecting voice: %v", err)
+			} else {
+				// Wait briefly for the disconnect packet to be sent
+				time.Sleep(500 * time.Millisecond)
+			}
+		}
+		voiceConnectionMutex.Unlock()
+
 		if err := dg.Close(); err != nil {
 			log.Printf("Error closing Discord session: %v", err)
 		}
@@ -182,6 +197,11 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, masterUser, defaultCha
 				}
 				log.Printf("Verified roles for %d members.", len(members))
 			}
+		}
+
+		// Wait for TTS Service
+		if defaultVoiceChannelID != "" {
+			waitForTTSService(ctx, ttsServiceURL)
 		}
 
 		// Join default channel if configured
@@ -271,6 +291,36 @@ func resolveRoleIDs(s *discordgo.Session, guildID string) {
 	}
 }
 
+func waitForTTSService(ctx context.Context, url string) {
+	if url == "" {
+		return
+	}
+	log.Printf("Waiting for TTS service at %s...", url)
+	timeout := time.After(60 * time.Second)
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-timeout:
+			log.Println("Timeout waiting for TTS service. Proceeding without it.")
+			return
+		case <-ticker.C:
+			// Check health
+			resp, err := http.Get(url)
+			if err == nil {
+				_ = resp.Body.Close()
+				if resp.StatusCode == 200 || resp.StatusCode == 404 { // 404 means service is up but path not found, which is fine for connectivity check
+					log.Println("TTS service is online.")
+					return
+				}
+			}
+		}
+	}
+}
+
 func voiceWatchdog(s *discordgo.Session) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -338,7 +388,7 @@ func playGreeting(s *discordgo.Session, vc *discordgo.VoiceConnection) {
 	// Let's re-use PlayAudioHandler logic but adapted, or just call TTS service and stream to endpoints.PlayAudioHandler via a fake request?
 	// Fake request is easiest to reuse the complex ffmpeg/opus logic.
 
-	ttsURL := "http://127.0.0.1:8200/generate"
+	ttsURL := ttsServiceURL + "/generate"
 	reqBody := map[string]string{
 		"text": text,
 	}
