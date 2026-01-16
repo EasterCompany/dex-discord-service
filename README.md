@@ -9,37 +9,39 @@ The `dex-discord-service` is a comprehensive gateway that integrates Discord wit
 The service operates on a dual-channel model:
 
 1.  **Gateway Connection (Ingress)**: Maintains a persistent WebSocket connection to the Discord Gateway.
-    *   **Monitors**: Message creation, voice state updates, member joins.
-    *   **Forwards**: Converts these activities into Dexter Events and sends them to the `dex-event-service` for asynchronous processing.
+    - **Monitors**: Message creation, voice state updates, member joins.
+    - **Forwards**: Converts these activities into Dexter Events and sends them to the `dex-event-service` for asynchronous processing.
 2.  **API Server (Egress)**: Exposes a REST API allowing other services to perform actions on Discord.
-    *   **Capabilities**: Sending text messages, uploading images, and serving audio assets.
+    - **Capabilities**: Sending text messages, uploading images, and serving audio assets.
 
 ## 🚀 Tech Stack
 
-*   **Language:** Go 1.24
-*   **Discord Lib:** `discordgo`
-*   **Audio:** `layeh.com/gopus` (Opus encoding)
-*   **Storage:** Redis (via `go-redis/v9`)
-*   **Communication:** HTTP (REST) & WebSocket (Gateway)
+- **Language:** Go 1.24
+- **Discord Lib:** `discordgo`
+- **Audio:** `layeh.com/gopus` (Opus encoding)
+- **Storage:** Redis (via `go-redis/v9`)
+- **Communication:** HTTP (REST) & WebSocket (Gateway)
 
 ## 🔌 Ports & Networking
 
-*   **Port:** `8300` (Default)
-*   **Host:** `0.0.0.0` (Binds to all interfaces)
+- **Port:** `8300` (Default)
+- **Host:** `0.0.0.0` (Binds to all interfaces)
 
 ## 🛠 Prerequisites
 
-*   **Go 1.24+**
-*   **dex-cli** (Installed and configured)
-*   **dex-event-service** (Running, for event forwarding)
-*   **Discord Bot Token** (Configured in `options.json`)
+- **Go 1.24+**
+- **dex-cli** (Installed and configured)
+- **dex-event-service** (Running, for event forwarding)
+- **Discord Bot Token** (Configured in `options.json`)
 
 ## 📦 Getting Started
 
 The recommended way to manage this service is via the `dex-cli`.
 
 ### 1. Configure
+
 Ensure `~/Dexter/config/options.json` contains valid Discord credentials:
+
 ```json
 {
   "discord": {
@@ -52,19 +54,25 @@ Ensure `~/Dexter/config/options.json` contains valid Discord credentials:
 ```
 
 ### 2. Build
+
 Build the service from source:
+
 ```bash
 dex build discord
 ```
 
 ### 3. Run
+
 Start the service:
+
 ```bash
 dex start discord
 ```
 
 ### 4. Verify
+
 Check connection status:
+
 ```bash
 dex status discord
 ```
@@ -74,14 +82,17 @@ dex status discord
 The service exposes endpoints for internal communication and health monitoring.
 
 ### Base URL
+
 `http://localhost:8300`
 
 ### Endpoints
 
 #### 1. Service Health & Info
+
 Get the current status, version, and Discord connection state.
-*   **GET** `/service`
-*   **Query Param:** `?format=version` (Optional, returns version string only)
+
+- **GET** `/service`
+- **Query Param:** `?format=version` (Optional, returns version string only)
 
 ```json
 {
@@ -101,13 +112,16 @@ Get the current status, version, and Discord connection state.
 ```
 
 #### 2. Post Message
+
 Send a message to a Discord channel. Supports text and/or images.
-*   **POST** `/post`
-*   **Headers:**
-    *   `Content-Type: application/json`
-    *   `X-Service-Name: <calling-service-id>` (Required for auth)
+
+- **POST** `/post`
+- **Headers:**
+  - `Content-Type: application/json`
+  - `X-Service-Name: <calling-service-id>` (Required for auth)
 
 **Payload:**
+
 ```json
 {
   "channel_id": "9876543210",
@@ -115,26 +129,32 @@ Send a message to a Discord channel. Supports text and/or images.
   "image_url": "https://example.com/image.png"
 }
 ```
-*Note: Either `content` or `image_url` (or both) is required.*
+
+_Note: Either `content` or `image_url` (or both) is required._
 
 #### 3. Audio Access
+
 Public endpoint to retrieve recorded or processed audio files.
-*   **GET** `/audio/{filename}`
+
+- **GET** `/audio/{filename}`
 
 ## ⚙️ Configuration
 
 Configuration is managed centrally by `dex-cli` and stored in `~/Dexter/config/`.
 
-*   **`service-map.json`**: Defines the service's port (`8300`).
-*   **`options.json`**: Critical Discord settings (Token, Guild ID, etc.).
+- **`service-map.json`**: Defines the service's port (`8300`).
+- **`options.json`**: Critical Discord settings (Token, Guild ID, etc.).
 
 ## 🔍 Troubleshooting
 
 **"Discord token not found"**
-*   Verify that `options.json` exists in `~/Dexter/config/` and has a valid `discord.token` set.
+
+- Verify that `options.json` exists in `~/Dexter/config/` and has a valid `discord.token` set.
 
 **"Event service not found"**
-*   Ensure `dex-event-service` is defined in `service-map.json` and is currently running. The bot cannot forward events if the event bus is down.
+
+- Ensure `dex-event-service` is defined in `service-map.json` and is currently running. The bot cannot forward events if the event bus is down.
 
 **"Authentication failed" (HTTP 403)**
-*   When calling `/post`, ensure you provide a valid `X-Service-Name` header matching a registered service ID.
+
+- When calling `/post`, ensure you provide a valid `X-Service-Name` header matching a registered service ID.
