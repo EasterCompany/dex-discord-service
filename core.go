@@ -52,28 +52,16 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, masterUser, de
 	voiceRecorder, err = audio.NewVoiceRecorder(ctx,
 		// OnStart callback
 		func(userID, channelID string) {
-			// user, _ := dg.User(userID)
-			// channel, _ := dg.Channel(channelID)
+			// Barge-In: Stop Dexter speaking if a user starts talking
+			// We assume self-echo is handled by OpusRecv filtering or SSRC logic, but we double check ID.
+			if dg != nil && dg.State != nil && dg.State.User != nil && userID == dg.State.User.ID {
+				return
+			}
 
-			log.Printf("VAD: User %s started speaking.", userID)
-
-			/*
-				event := utils.UserSpeakingEvent{
-					GenericMessagingEvent: utils.GenericMessagingEvent{
-						Source:      "discord",
-						UserID:      userID,
-						UserName:    user.Username,
-						ChannelID:   channelID,
-						ChannelName: channel.Name,
-						ServerID:    guildID,
-						Timestamp:   time.Now(),
-						Type:        utils.EventTypeMessagingUserSpeakingStarted,
-					},
-				}
-				if err := sendEventData(event); err != nil {
-					log.Printf("Error sending speaking started event: %v", err)
-				}
-			*/
+			log.Printf("VAD: User %s started speaking. Triggering Barge-In Interrupt.", userID)
+			if mixer := audio.GetGlobalMixer(); mixer != nil {
+				mixer.InterruptVoice()
+			}
 		},
 		// OnStop callback
 		func(userID, channelID, redisKey string) {

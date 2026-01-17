@@ -144,7 +144,7 @@ func PlayMusicHandler(w http.ResponseWriter, r *http.Request) {
 
 		// 3. Stream to Mixer (isVoice = false)
 		// This will block until stream ends
-		if err := mixer.StreamFromReader(ffmpegOut, false); err != nil {
+		if err := mixer.StreamFromReader(context.Background(), ffmpegOut, false); err != nil {
 			log.Printf("Error streaming music to mixer: %v", err)
 		}
 
@@ -188,11 +188,13 @@ func PlayAudioHandler(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = ffmpeg.Wait() }()
 
 	// Stream to Mixer (isVoice = true)
-	if err := mixer.StreamFromReader(ffmpegOut, true); err != nil {
-		log.Printf("Error streaming voice to mixer: %v", err)
-		// Don't error the HTTP response here as we likely already started 200 OK implicitly?
-		// No, we haven't written header yet if StreamFromReader blocks initially?
-		// StreamFromReader might block.
+	// We use the mixer's voice context to allow interruption
+	if err := mixer.StreamFromReader(mixer.GetVoiceContext(), ffmpegOut, true); err != nil {
+		if err == context.Canceled {
+			log.Println("PlayAudioHandler: Voice playback interrupted (Barge-In).")
+		} else {
+			log.Printf("Error streaming voice to mixer: %v", err)
+		}
 	}
 
 	w.WriteHeader(http.StatusOK)

@@ -1,6 +1,7 @@
 package audio
 
 import (
+	"context"
 	"encoding/binary"
 	"io"
 	"log"
@@ -28,6 +29,10 @@ type AudioMixer struct {
 	running     bool
 	mu          sync.Mutex
 	encoder     *gopus.Encoder
+
+	// Voice Interruption Control
+	voiceCtx    context.Context
+	voiceCancel context.CancelFunc
 }
 
 var globalMixer *AudioMixer
@@ -57,13 +62,49 @@ func NewAudioMixer(vc *discordgo.VoiceConnection) (*AudioMixer, error) {
 		return nil, err
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	return &AudioMixer{
 		vc:          vc,
 		musicStream: make(chan []int16, 100), // Buffer ~2 seconds
 		voiceStream: make(chan []int16, 100),
 		stopChan:    make(chan struct{}),
 		encoder:     encoder,
+		voiceCtx:    ctx,
+		voiceCancel: cancel,
 	}, nil
+}
+
+// InterruptVoice stops the current voice playback and clears the queue
+func (m *AudioMixer) InterruptVoice() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Cancel current streaming context
+	if m.voiceCancel != nil {
+		m.voiceCancel()
+	}
+
+	// Reset context for next stream
+	m.voiceCtx, m.voiceCancel = context.WithCancel(context.Background())
+
+	// Drain channel
+loop:
+	for {
+		select {
+		case <-m.voiceStream:
+		default:
+			break loop
+		}
+	}
+	log.Println("AudioMixer: Voice interrupted and queue cleared.")
+}
+
+// GetVoiceContext returns the current interruptible context for voice streaming
+func (m *AudioMixer) GetVoiceContext() context.Context {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.voiceCtx
 }
 
 // Start begins the mixing loop
@@ -249,8 +290,14 @@ func (m *AudioMixer) runLoop() {
 
 // StreamFromReader reads PCM s16le stereo 48kHz from a reader and streams it to the specified channel
 // isVoice determines if it goes to Voice (true) or Music (false) channel
-func (m *AudioMixer) StreamFromReader(r io.Reader, isVoice bool) error {
+func (m *AudioMixer) StreamFromReader(ctx context.Context, r io.Reader, isVoice bool) error {
 	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
 		// Read a frame
 		buf := make([]int16, FrameSize*Channels)
 		err := binary.Read(r, binary.LittleEndian, &buf)
