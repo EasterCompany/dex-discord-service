@@ -208,6 +208,9 @@ func main() {
 	// /message/react endpoint is protected by auth middleware
 	mux.HandleFunc("/message/react", middleware.ServiceAuthMiddleware(endpoints.ReactMessageHandler))
 
+	// /voice/state endpoint is protected by auth middleware
+	mux.HandleFunc("/voice/state", middleware.ServiceAuthMiddleware(endpoints.VoiceStateHandler))
+
 	// /audio endpoint is public (for fetching recordings)
 	mux.HandleFunc("/audio/", endpoints.AudioHandler)
 

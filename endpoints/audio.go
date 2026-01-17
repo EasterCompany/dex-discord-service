@@ -14,13 +14,22 @@ import (
 )
 
 var (
-	vcMutex sync.Mutex
+	vcMutex  sync.Mutex
+	activeVC *discordgo.VoiceConnection
 )
+
+// GetActiveVoiceConnection returns the current voice connection safely
+func GetActiveVoiceConnection() *discordgo.VoiceConnection {
+	vcMutex.Lock()
+	defer vcMutex.Unlock()
+	return activeVC
+}
 
 // SetActiveVoiceConnection sets the active voice connection for audio playback
 func SetActiveVoiceConnection(vc *discordgo.VoiceConnection) {
 	vcMutex.Lock()
-	defer vcMutex.Unlock()
+	activeVC = vc
+	vcMutex.Unlock()
 
 	// Initialize and start the global mixer
 	mixer, err := audio.NewAudioMixer(vc)
