@@ -29,12 +29,13 @@ func SetRedisClient(client *redis.Client) {
 
 // PostRequest represents the structure of a post request
 type PostRequest struct {
-	ServerID  string                 `json:"server_id"`  // Discord Guild/Server ID
-	ChannelID string                 `json:"channel_id"` // Discord Channel ID
-	UserID    string                 `json:"user_id"`    // NEW: For DM support
-	Content   string                 `json:"content"`    // Text message content (optional if image provided)
-	ImageURL  string                 `json:"image_url"`  // URL to image to send (optional)
-	Metadata  map[string]interface{} `json:"metadata"`   // Optional metadata (e.g., debug info)
+	ServerID  string                  `json:"server_id"`  // Discord Guild/Server ID
+	ChannelID string                  `json:"channel_id"` // Discord Channel ID
+	UserID    string                  `json:"user_id"`    // NEW: For DM support
+	Content   string                  `json:"content"`    // Text message content (optional if image provided)
+	ImageURL  string                  `json:"image_url"`  // URL to image to send (optional)
+	Embed     *discordgo.MessageEmbed `json:"embed"`      // Optional Embed object
+	Metadata  map[string]interface{}  `json:"metadata"`   // Optional metadata (e.g., debug info)
 }
 
 // PostHandler handles POST requests to send messages to Discord
@@ -89,10 +90,16 @@ func PostHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Content == "" && req.ImageURL == "" {
-		log.Printf("POST ERROR: Missing content or image_url")
-		http.Error(w, "Either content or image_url is required", http.StatusBadRequest)
+	if req.Content == "" && req.ImageURL == "" && req.Embed == nil {
+		log.Printf("POST ERROR: Missing content, image_url, or embed")
+		http.Error(w, "Content, image_url, or embed is required", http.StatusBadRequest)
 		return
+	}
+
+	// Prepare MessageSend struct
+	msgSend := &discordgo.MessageSend{
+		Content: req.Content,
+		Embed:   req.Embed,
 	}
 
 	// Send message to Discord
@@ -131,21 +138,20 @@ func PostHandler(w http.ResponseWriter, r *http.Request) {
 			filename = "image.webp"
 		}
 
-		// Send message with image using ChannelFileSendWithMessage
-		message, err = discordSession.ChannelFileSendWithMessage(req.ChannelID, req.Content, filename, resp.Body)
-		if err != nil {
-			log.Printf("POST ERROR: Failed to send message with image to Discord: %v", err)
-			http.Error(w, "Failed to send message to Discord", http.StatusInternalServerError)
-			return
+		msgSend.Files = []*discordgo.File{
+			{
+				Name:   filename,
+				Reader: resp.Body,
+			},
 		}
-	} else {
-		// Send text-only message
-		message, err = discordSession.ChannelMessageSend(req.ChannelID, req.Content)
-		if err != nil {
-			log.Printf("POST ERROR: Failed to send message to Discord: %v", err)
-			http.Error(w, "Failed to send message to Discord", http.StatusInternalServerError)
-			return
-		}
+	}
+
+	// Send using Complex
+	message, err = discordSession.ChannelMessageSendComplex(req.ChannelID, msgSend)
+	if err != nil {
+		log.Printf("POST ERROR: Failed to send message to Discord: %v", err)
+		http.Error(w, "Failed to send message to Discord", http.StatusInternalServerError)
+		return
 	}
 
 	log.Printf("POST SUCCESS: Message sent to channel %s: %s", req.ChannelID, message.ID)
