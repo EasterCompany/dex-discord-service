@@ -7,8 +7,9 @@ import (
 )
 
 type VoiceStateRequest struct {
-	Mute bool `json:"mute"`
-	Deaf bool `json:"deaf"`
+	Mute   bool   `json:"mute"`
+	Deaf   bool   `json:"deaf"`
+	Reason string `json:"reason"`
 }
 
 // VoiceStateHandler updates the bot's voice state (mute/deaf) in the current guild
@@ -51,6 +52,10 @@ func VoiceStateHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("Voice state updated: Mute=%v, Deaf=%v", req.Mute, req.Deaf)
+	logMsg := "Voice state updated"
+	if req.Reason != "" {
+		logMsg += " (" + req.Reason + ")"
+	}
+	log.Printf("%s: Mute=%v, Deaf=%v", logMsg, req.Mute, req.Deaf)
 	w.WriteHeader(http.StatusOK)
 }
