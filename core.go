@@ -219,8 +219,79 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, masterUser, de
 		// Start Voice Watchdog
 		go voiceWatchdog(dg)
 
+		// Start Voice Lock Manager (Priority & Locking)
+		go voiceLockManager(dg)
+
 		<-ctx.Done()
 		return nil
+	}
+}
+
+// voiceLockManager ensures Dexter holds the cognitive lock while in a voice channel with humans.
+func voiceLockManager(s *discordgo.Session) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	lockKey := "system:cognitive_lock"
+	voiceModeID := "Voice Mode"
+
+	for range ticker.C {
+		voiceConnectionMutex.Lock()
+		vc := activeVoiceConnection
+		voiceConnectionMutex.Unlock()
+
+		// 1. Not in voice? Release lock if we hold it.
+		if vc == nil || vc.ChannelID == "" {
+			val, _ := redisClient.Get(context.Background(), lockKey).Result()
+			if val == voiceModeID {
+				redisClient.Del(context.Background(), lockKey)
+				log.Printf("Voice Lock released (Not in voice)")
+			}
+			continue
+		}
+
+		// 2. In voice? Count humans.
+		// We use the session state which is kept up-to-date by intents.
+		guild, err := s.State.Guild(vc.GuildID)
+		if err != nil {
+			continue
+		}
+
+		humanCount := 0
+		for _, vs := range guild.VoiceStates {
+			if vs.ChannelID == vc.ChannelID {
+				// Ignore self
+				if vs.UserID == s.State.User.ID {
+					continue
+				}
+				// We treat everyone else as a "Human" for priority purposes.
+				// (Assuming other bots are negligible or also deserve priority interaction)
+				humanCount++
+			}
+		}
+
+		// 3. Logic
+		if humanCount > 0 {
+			// Humans present: Try to acquire or refresh
+			holder, _ := redisClient.Get(context.Background(), lockKey).Result()
+
+			if holder == "" || holder == voiceModeID {
+				// Free or Ours -> Acquire/Refresh
+				if holder == "" {
+					log.Printf("Voice Mode: Acquiring Cognitive Lock (Humans detected)")
+				}
+				// Set with 60s TTL (renewed every 5s)
+				redisClient.Set(context.Background(), lockKey, voiceModeID, 60*time.Second)
+			}
+			// If held by someone else, we do nothing (Wait logic)
+		} else {
+			// Alone in channel: Release if we hold it
+			holder, _ := redisClient.Get(context.Background(), lockKey).Result()
+			if holder == voiceModeID {
+				redisClient.Del(context.Background(), lockKey)
+				log.Printf("Voice Lock released (Alone in channel)")
+			}
+		}
 	}
 }
 
