@@ -80,8 +80,8 @@ func (vr *VoiceRecorder) MonitorSilence() {
 		now := time.Now().UnixMilli()
 
 		for userID, rec := range vr.recordings {
-			// Silence threshold: 500ms
-			if now-rec.LastPacketTime > 500 {
+			// Silence threshold: 1500ms (1.5s) to allow natural pauses/thinking time
+			if now-rec.LastPacketTime > 1500 {
 				usersToStop = append(usersToStop, userID)
 			}
 		}
