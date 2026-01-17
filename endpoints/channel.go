@@ -95,3 +95,37 @@ func GetVoiceChannelUserCountHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 	}
 }
+
+// ListChannelsHandler returns a list of all text channels the bot can see.
+func ListChannelsHandler(w http.ResponseWriter, r *http.Request) {
+	sessionMutex.RLock()
+	dg := discordSession
+	sessionMutex.RUnlock()
+
+	if dg == nil {
+		http.Error(w, "Discord session not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	var channels []map[string]string
+
+	for _, guild := range dg.State.Guilds {
+		gChannels, err := dg.GuildChannels(guild.ID)
+		if err != nil {
+			continue
+		}
+
+		for _, c := range gChannels {
+			if c.Type == discordgo.ChannelTypeGuildText {
+				channels = append(channels, map[string]string{
+					"id":    c.ID,
+					"name":  c.Name,
+					"guild": guild.Name,
+				})
+			}
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(channels)
+}
