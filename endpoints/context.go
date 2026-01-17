@@ -49,7 +49,8 @@ type GuildStructureResponse struct {
 
 type MemberContext struct {
 	ID        string `json:"id"`
-	Username  string `json:"username"`
+	Username  string `json:"username"` // Discord handle
+	Nickname  string `json:"nickname"` // Server nickname
 	AvatarURL string `json:"avatar_url"`
 	Level     string `json:"level"`
 	Color     int    `json:"color"` // Decimal color from role
@@ -150,9 +151,18 @@ func GetContactsHandler(w http.ResponseWriter, r *http.Request) {
 			status = "offline"
 		}
 
+		nickname := m.Nick
+		if nickname == "" {
+			nickname = m.User.GlobalName
+		}
+		if nickname == "" {
+			nickname = m.User.Username
+		}
+
 		response.Members = append(response.Members, MemberContext{
 			ID:        m.User.ID,
-			Username:  utils.GetUserDisplayName(dg, redisClient, targetGuildID, m.User.ID),
+			Username:  m.User.Username,
+			Nickname:  nickname,
 			AvatarURL: m.User.AvatarURL("128"),
 			Level:     string(level),
 			Color:     memberColor,
