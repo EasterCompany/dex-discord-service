@@ -8,9 +8,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -27,6 +24,7 @@ const MaxAttachmentSize = 10 * 1024 * 1024 // 10 MiB
 
 var eventServiceURL string
 var ttsServiceURL string
+var sttServiceURL string
 var masterUserID string
 var defaultVoiceChannelID string
 var serverID string
@@ -37,9 +35,10 @@ var activeVoiceConnection *discordgo.VoiceConnection
 var voiceConnectionMutex sync.Mutex
 
 // RunCoreLogic manages the Discord session and its event handlers.
-func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, masterUser, defaultChannel, guildID string, roles config.DiscordRoleConfig, rc *redis.Client) error {
+func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, masterUser, defaultChannel, guildID string, roles config.DiscordRoleConfig, rc *redis.Client) error {
 	eventServiceURL = serviceURL
 	ttsServiceURL = ttsURL
+	sttServiceURL = sttURL
 	endpoints.SetEventServiceURL(serviceURL)
 	masterUserID = masterUser
 	defaultVoiceChannelID = defaultChannel
@@ -876,43 +875,38 @@ func sendEventData(eventData interface{}) error {
 }
 
 func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
-	homeDir, err := os.UserHomeDir()
+	// Call STT Service
+	reqBody := map[string]string{
+		"redis_key": redisKey,
+	}
+	jsonBody, _ := json.Marshal(reqBody)
+
+	resp, err := http.Post(sttServiceURL+"/transcribe", "application/json", bytes.NewBuffer(jsonBody))
 	if err != nil {
-		log.Printf("Error getting user home directory: %v", err)
+		log.Printf("Failed to call STT service: %v", err)
 		return
 	}
-	dexPath := filepath.Join(homeDir, "Dexter", "bin", "dex")
+	defer func() { _ = resp.Body.Close() }()
 
-	cmd := exec.Command(dexPath, "whisper", "transcribe", "-k", redisKey)
-	outputBytes, err := cmd.Output()
-	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			log.Printf("Error transcribing audio: %v, stderr: %s", err, string(exitErr.Stderr))
-		} else {
-			log.Printf("Error transcribing audio: %v", err)
-		}
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		log.Printf("STT service error (status %d): %s", resp.StatusCode, string(body))
 		return
 	}
 
-	// Structure to parse dex-cli JSON output
-	var dexOutput struct {
-		OriginalTranscription string `json:"original_transcription"`
-		Error                 string `json:"error"`
+	// Structure to parse STT service JSON output
+	var sttOutput struct {
+		Text        string  `json:"text"`
+		Language    string  `json:"language"`
+		Probability float64 `json:"probability"`
 	}
 
-	transcription := ""
-
-	// Attempt to parse JSON output
-	if err := json.Unmarshal(outputBytes, &dexOutput); err == nil {
-		if dexOutput.Error != "" {
-			log.Printf("Error from dex-cli: %s", dexOutput.Error)
-			return
-		}
-		transcription = dexOutput.OriginalTranscription
-	} else {
-		// Fallback for non-JSON output (or legacy behavior)
-		transcription = strings.TrimSpace(string(outputBytes))
+	if err := json.NewDecoder(resp.Body).Decode(&sttOutput); err != nil {
+		log.Printf("Failed to parse STT response: %v", err)
+		return
 	}
+
+	transcription := sttOutput.Text
 
 	// IGNORE empty or whitespace-only transcriptions
 	if strings.TrimSpace(transcription) == "" {

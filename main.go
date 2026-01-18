@@ -119,6 +119,17 @@ func main() {
 		}
 	}
 
+	// Find the STT service configuration
+	var sttServiceURL = "http://127.0.0.1:8202" // Default fallback
+	if beServices, ok := serviceMap.Services["be"]; ok {
+		for _, service := range beServices {
+			if service.ID == "dex-stt-service" {
+				sttServiceURL = fmt.Sprintf("http://%s:%s", service.Domain, service.Port)
+				break
+			}
+		}
+	}
+
 	// Create a context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -143,7 +154,7 @@ func main() {
 	go func() {
 		log.Println("Core Logic: Starting...")
 		endpoints.SetUserConfig(options.Discord.MasterUser, options.Discord.Roles)
-		if err := RunCoreLogic(ctx, discordToken, eventServiceURL, ttsServiceURL, options.Discord.MasterUser, options.Discord.DefaultVoiceChannel, options.Discord.ServerID, options.Discord.Roles, redisClient); err != nil {
+		if err := RunCoreLogic(ctx, discordToken, eventServiceURL, ttsServiceURL, sttServiceURL, options.Discord.MasterUser, options.Discord.DefaultVoiceChannel, options.Discord.ServerID, options.Discord.Roles, redisClient); err != nil {
 			log.Printf("Core Logic Error: %v", err)
 			// Trigger shutdown if core logic fails
 			cancel()
