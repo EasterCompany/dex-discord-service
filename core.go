@@ -270,6 +270,9 @@ func voiceLockManager(s *discordgo.Session) {
 				}
 				// Set with 60s TTL (renewed every 5s)
 				redisClient.Set(context.Background(), lockKey, voiceModeID, 60*time.Second)
+
+				// Register as an active process for dashboard visibility
+				utils.ReportProcess(context.Background(), redisClient, "voice-mode", fmt.Sprintf("Voice Active (%d users)", humanCount))
 			}
 			// If held by someone else, we do nothing (Wait logic)
 		} else {
@@ -277,6 +280,7 @@ func voiceLockManager(s *discordgo.Session) {
 			holder, _ := redisClient.Get(context.Background(), lockKey).Result()
 			if holder == voiceModeID {
 				redisClient.Del(context.Background(), lockKey)
+				utils.ClearProcess(context.Background(), redisClient, "voice-mode")
 				log.Printf("Voice Lock released (Alone in channel)")
 			}
 		}
