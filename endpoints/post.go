@@ -207,6 +207,11 @@ func PostHandler(w http.ResponseWriter, r *http.Request) {
 			"timestamp":    time.Now().Format(time.RFC3339),
 		}
 
+		// Include embed if present
+		if req.Embed != nil {
+			eventData["embed"] = req.Embed
+		}
+
 		// Merge metadata into eventData (specifically look for response_model and response_raw)
 		if req.Metadata != nil {
 			if val, ok := req.Metadata["response_model"]; ok {
