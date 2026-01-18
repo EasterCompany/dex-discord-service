@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"log"
+	"math"
 	"sync"
 	"time"
 
@@ -19,6 +20,11 @@ const (
 	frameRate int = 48000               // 48kHz
 	frameSize int = 960                 // 20ms frame at 48kHz
 	maxBytes  int = (frameSize * 2) * 2 // max size of opus data
+
+	// BargeInThreshold is the RMS energy level required to interrupt the bot.
+	// 16-bit audio ranges from -32768 to 32767.
+	// A value of 1000 is roughly -30dB, significantly louder than typical acoustic echo.
+	BargeInThreshold = 1000.0
 )
 
 // UserRecording tracks an active recording session for a user
@@ -288,9 +294,35 @@ func (vr *VoiceRecorder) ProcessVoicePacket(ssrc uint32, packet *discordgo.Packe
 		return fmt.Errorf("failed to decode opus: %w", err)
 	}
 
+	// ECHO CANCELLATION & VAD SCALING
+	// If Dexter is currently speaking, we increase the sensitivity threshold.
+	// Only loud audio (Barge-In) should pass through. Quiet audio is likely acoustic echo.
+	mixer := GetGlobalMixer()
+	if mixer != nil && mixer.IsPlaying() {
+		rms := calculateRMS(pcm)
+		if rms < BargeInThreshold {
+			// Drop packet (treat as silence/echo)
+			return nil
+		}
+		// Log interruption for debugging (optional, can be noisy)
+		// log.Printf("Barge-In Detected: RMS %.2f > Threshold %.2f", rms, BargeInThreshold)
+	}
+
 	// Append to buffer
 	recording.Buffer = append(recording.Buffer, pcm...)
 	return nil
+}
+
+func calculateRMS(pcm []int16) float64 {
+	if len(pcm) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, sample := range pcm {
+		val := float64(sample)
+		sum += val * val
+	}
+	return math.Sqrt(sum / float64(len(pcm)))
 }
 
 // saveRecordingToRedis saves the recorded audio to Redis as a WAV file in bytes

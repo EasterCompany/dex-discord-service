@@ -593,6 +593,11 @@ func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (
 
 func setupVoiceReceivers(s *discordgo.Session, vc *discordgo.VoiceConnection) {
 	vc.AddHandler(func(vc *discordgo.VoiceConnection, vs *discordgo.VoiceSpeakingUpdate) {
+		// ECHO CANCELLATION: Do not register our own SSRC.
+		// If we register it, the recorder will capture our own output, causing feedback loops.
+		if vs.UserID == s.State.User.ID {
+			return
+		}
 		voiceRecorder.RegisterSSRC(uint32(vs.SSRC), vs.UserID, vc.ChannelID)
 	})
 

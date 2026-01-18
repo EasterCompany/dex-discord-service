@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/bwmarrin/discordgo"
@@ -27,6 +28,7 @@ type AudioMixer struct {
 	voiceStream chan []int16
 	stopChan    chan struct{}
 	running     bool
+	playing     atomic.Bool // Tracks if mixer is actively outputting audio
 	mu          sync.Mutex
 	encoder     *gopus.Encoder
 
@@ -161,6 +163,11 @@ func (m *AudioMixer) IsRunning() bool {
 	return m.running
 }
 
+// IsPlaying returns true if the mixer is actively outputting audio (voice or music)
+func (m *AudioMixer) IsPlaying() bool {
+	return m.playing.Load()
+}
+
 func (m *AudioMixer) runLoop() {
 	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
@@ -172,6 +179,7 @@ func (m *AudioMixer) runLoop() {
 	defer func() {
 		if isSpeaking {
 			_ = m.vc.Speaking(false)
+			m.playing.Store(false)
 		}
 	}()
 
@@ -214,6 +222,7 @@ func (m *AudioMixer) runLoop() {
 						log.Printf("Mixer Speaking(true) error: %v", err)
 					}
 					isSpeaking = true
+					m.playing.Store(true)
 				}
 				silenceFrames = 0
 
@@ -280,6 +289,7 @@ func (m *AudioMixer) runLoop() {
 							log.Printf("Mixer Speaking(false) error: %v", err)
 						}
 						isSpeaking = false
+						m.playing.Store(false)
 					}
 				}
 				// If not speaking, do nothing (idle)
