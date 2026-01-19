@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/EasterCompany/dex-discord-service/profile"
 	"github.com/EasterCompany/dex-discord-service/utils"
@@ -31,13 +32,28 @@ func GetProfileHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	if p == nil {
-		// Return 404 if not found. The frontend will handle this by showing default/mock data or an empty state.
-		http.Error(w, "Profile not found", http.StatusNotFound)
-		return
+		// Auto-create default profile if not found
+		username := "Unknown User"
+		if discordSession != nil {
+			user, err := discordSession.User(userID)
+			if err == nil {
+				username = user.Username
+			}
+		}
+
+		p = &profile.UserProfile{
+			UserID: userID,
+			Identity: profile.Identity{
+				Username:  username,
+				FirstSeen: time.Now().Format(time.RFC3339),
+			},
+		}
+		// Attempt to save it
+		_ = store.Save(r.Context(), p)
 	}
 
+	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(p); err != nil {
 		utils.LogError("Failed to encode profile: %v", err)
 	}
