@@ -919,6 +919,7 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 			Timestamp:   time.Now(),
 		},
 		Transcription: transcription,
+		Content:       transcription,
 	}
 	if err := sendEventData(event); err != nil {
 		log.Printf("Error sending transcription event: %v", err)

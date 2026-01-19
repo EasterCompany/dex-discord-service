@@ -87,4 +87,5 @@ type UserSpeakingEvent struct {
 type UserTranscribedEvent struct {
 	GenericMessagingEvent
 	Transcription string `json:"transcription"`
+	Content       string `json:"content"`
 }
