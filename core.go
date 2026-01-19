@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"strings"
 	"sync"
@@ -861,13 +862,13 @@ func sendEventData(eventData interface{}) error {
 }
 
 func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
-	// Call STT Service
-	reqBody := map[string]string{
-		"redis_key": redisKey,
-	}
-	jsonBody, _ := json.Marshal(reqBody)
+	// Call STT Service using multipart form
+	body := &bytes.Buffer{}
+	writer := multipart.NewWriter(body)
+	_ = writer.WriteField("redis_key", redisKey)
+	_ = writer.Close()
 
-	resp, err := http.Post(sttServiceURL+"/transcribe", "application/json", bytes.NewBuffer(jsonBody))
+	resp, err := http.Post(sttServiceURL+"/transcribe", writer.FormDataContentType(), body)
 	if err != nil {
 		log.Printf("Failed to call STT service: %v", err)
 		return
@@ -875,8 +876,8 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		log.Printf("STT service error (status %d): %s", resp.StatusCode, string(body))
+		bodyBytes, _ := io.ReadAll(resp.Body)
+		log.Printf("STT service error (status %d): %s", resp.StatusCode, string(bodyBytes))
 		return
 	}
 
