@@ -198,7 +198,12 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaul
 				log.Printf("Error joining default voice channel: %v", err)
 			} else {
 				endpoints.SetActiveVoiceConnection(vc)
-				go playGreeting(dg, vc)
+				// Only play greeting if humans are present
+				if hasHumansInChannel(dg, vc.GuildID, vc.ChannelID) {
+					go playGreeting(dg, vc)
+				} else {
+					log.Printf("Bot joined voice channel alone. Skipping greeting.")
+				}
 			}
 		}
 
@@ -211,6 +216,25 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaul
 		<-ctx.Done()
 		return nil
 	}
+}
+
+// hasHumansInChannel checks if there are any non-bot users in the specified channel.
+func hasHumansInChannel(s *discordgo.Session, guildID, channelID string) bool {
+	guild, err := s.State.Guild(guildID)
+	if err != nil {
+		return false
+	}
+
+	for _, vs := range guild.VoiceStates {
+		if vs.ChannelID == channelID {
+			// Ignore self
+			if vs.UserID == s.State.User.ID {
+				continue
+			}
+			return true
+		}
+	}
+	return false
 }
 
 // voiceLockManager ensures Dexter holds the cognitive lock while in a voice channel with humans.
