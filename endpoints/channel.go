@@ -13,7 +13,6 @@ import (
 var (
 	discordSession *discordgo.Session
 	sessionMutex   sync.RWMutex
-	masterUserID   string
 	roleConfig     config.DiscordRoleConfig
 )
 
@@ -24,11 +23,10 @@ func SetDiscordSession(s *discordgo.Session) {
 	discordSession = s
 }
 
-// SetUserConfig sets the master user and role mapping for handlers
-func SetUserConfig(masterID string, roles config.DiscordRoleConfig) {
+// SetUserConfig sets the role mapping for handlers
+func SetUserConfig(roles config.DiscordRoleConfig) {
 	sessionMutex.Lock()
 	defer sessionMutex.Unlock()
-	masterUserID = masterID
 	roleConfig = roles
 }
 

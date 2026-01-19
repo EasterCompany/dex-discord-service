@@ -25,7 +25,6 @@ const MaxAttachmentSize = 10 * 1024 * 1024 // 10 MiB
 var eventServiceURL string
 var ttsServiceURL string
 var sttServiceURL string
-var masterUserID string
 var defaultVoiceChannelID string
 var serverID string
 var redisClient *redis.Client
@@ -35,12 +34,11 @@ var activeVoiceConnection *discordgo.VoiceConnection
 var voiceConnectionMutex sync.Mutex
 
 // RunCoreLogic manages the Discord session and its event handlers.
-func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, masterUser, defaultChannel, guildID string, roles config.DiscordRoleConfig, rc *redis.Client) error {
+func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaultChannel, guildID string, roles config.DiscordRoleConfig, rc *redis.Client) error {
 	eventServiceURL = serviceURL
 	ttsServiceURL = ttsURL
 	sttServiceURL = sttURL
 	endpoints.SetEventServiceURL(serviceURL)
-	masterUserID = masterUser
 	defaultVoiceChannelID = defaultChannel
 	serverID = guildID
 	roleConfig = roles
@@ -483,7 +481,7 @@ func playGreeting(s *discordgo.Session, vc *discordgo.VoiceConnection) {
 		Source:      "discord",
 		UserID:      s.State.User.ID,
 		UserName:    s.State.User.Username,
-		UserLevel:   string(utils.GetUserLevel(s, redisClient, vc.GuildID, s.State.User.ID, masterUserID, roleConfig)),
+		UserLevel:   string(utils.GetUserLevel(s, redisClient, vc.GuildID, s.State.User.ID, roleConfig)),
 		ChannelID:   vc.ChannelID,
 		ChannelName: "Voice", // Could fetch real name
 		ServerID:    vc.GuildID,
@@ -576,7 +574,7 @@ func joinOrMoveToVoiceChannel(s *discordgo.Session, guildID, channelID string) (
 			Source:      "discord",
 			UserID:      s.State.User.ID,
 			UserName:    s.State.User.Username,
-			UserLevel:   string(utils.GetUserLevel(s, redisClient, vc.GuildID, s.State.User.ID, masterUserID, roleConfig)),
+			UserLevel:   string(utils.GetUserLevel(s, redisClient, vc.GuildID, s.State.User.ID, roleConfig)),
 			ChannelID:   vc.ChannelID,
 			ChannelName: channelName,
 			ServerID:    vc.GuildID,
@@ -695,7 +693,7 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			Source:      "discord",
 			UserID:      m.Author.ID,
 			UserName:    userName,
-			UserLevel:   string(utils.GetUserLevel(s, redisClient, m.GuildID, m.Author.ID, masterUserID, roleConfig)),
+			UserLevel:   string(utils.GetUserLevel(s, redisClient, m.GuildID, m.Author.ID, roleConfig)),
 			ChannelID:   m.ChannelID,
 			ChannelName: channelName,
 			ServerID:    serverID,
@@ -771,18 +769,6 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 		}
 	*/
 
-	if v.UserID == masterUserID {
-		if v.ChannelID != "" {
-			if _, err := joinOrMoveToVoiceChannel(s, v.GuildID, v.ChannelID); err != nil {
-				log.Printf("Error following master user to voice channel: %v", err)
-			}
-		} else if defaultVoiceChannelID != "" && serverID != "" {
-			if _, err := joinOrMoveToVoiceChannel(s, serverID, defaultVoiceChannelID); err != nil {
-				log.Printf("Error returning bot to default voice channel: %v", err)
-			}
-		}
-	}
-
 	var eventType utils.EventType
 	channelID := v.ChannelID
 	if v.ChannelID != "" && (v.BeforeUpdate == nil || v.BeforeUpdate.ChannelID != v.ChannelID) {
@@ -805,7 +791,7 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 				Source:      "discord",
 				UserID:      v.UserID,
 				UserName:    utils.GetUserDisplayName(s, redisClient, v.GuildID, v.UserID),
-				UserLevel:   string(utils.GetUserLevel(s, redisClient, v.GuildID, v.UserID, masterUserID, roleConfig)),
+				UserLevel:   string(utils.GetUserLevel(s, redisClient, v.GuildID, v.UserID, roleConfig)),
 				ChannelID:   channelID,
 				ChannelName: channel.Name,
 				ServerID:    v.GuildID,
@@ -828,7 +814,7 @@ func guildMemberAdd(s *discordgo.Session, m *discordgo.GuildMemberAdd) {
 			Source:     "discord",
 			UserID:     m.User.ID,
 			UserName:   utils.GetUserDisplayName(s, redisClient, m.GuildID, m.User.ID),
-			UserLevel:  string(utils.GetUserLevel(s, redisClient, m.GuildID, m.User.ID, masterUserID, roleConfig)),
+			UserLevel:  string(utils.GetUserLevel(s, redisClient, m.GuildID, m.User.ID, roleConfig)),
 			ServerID:   m.GuildID,
 			ServerName: guild.Name,
 			Timestamp:  m.JoinedAt,
@@ -925,7 +911,7 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
 			Source:      "discord",
 			UserID:      userID,
 			UserName:    userName,
-			UserLevel:   string(utils.GetUserLevel(s, redisClient, channel.GuildID, userID, masterUserID, roleConfig)),
+			UserLevel:   string(utils.GetUserLevel(s, redisClient, channel.GuildID, userID, roleConfig)),
 			ChannelID:   channelID,
 			ChannelName: channel.Name,
 			ServerID:    channel.GuildID,

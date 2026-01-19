@@ -66,7 +66,6 @@ type ContactsResponse struct {
 func GetContactsHandler(w http.ResponseWriter, r *http.Request) {
 	sessionMutex.RLock()
 	dg := discordSession
-	masterID := masterUserID
 	roles := roleConfig
 	sessionMutex.RUnlock()
 
@@ -127,7 +126,7 @@ func GetContactsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, m := range members {
-		level := utils.GetUserLevel(dg, redisClient, targetGuildID, m.User.ID, masterID, roles)
+		level := utils.GetUserLevel(dg, redisClient, targetGuildID, m.User.ID, roles)
 
 		// Determine most prominent role color (highest position with a color)
 		memberColor := 0
@@ -403,7 +402,6 @@ func GetLatestMessageIDHandler(w http.ResponseWriter, r *http.Request) {
 func GetMemberHandler(w http.ResponseWriter, r *http.Request) {
 	sessionMutex.RLock()
 	dg := discordSession
-	masterID := masterUserID
 	roles := roleConfig
 	sessionMutex.RUnlock()
 
@@ -447,7 +445,7 @@ func GetMemberHandler(w http.ResponseWriter, r *http.Request) {
 		guild, _ = dg.Guild(targetGuildID)
 	}
 
-	level := utils.GetUserLevel(dg, redisClient, targetGuildID, userID, masterID, roles)
+	level := utils.GetUserLevel(dg, redisClient, targetGuildID, userID, roles)
 
 	memberColor := 0
 	if guild != nil {
