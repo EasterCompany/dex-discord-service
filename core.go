@@ -1140,7 +1140,23 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		_ = conn.Close()
 	}
 
-	// 2. Get Public IP
+	// 2. Get Tailscale IP (The "Anywhere" solution)
+	tailscaleIP := "not installed"
+	ifaces, _ := net.Interfaces()
+	for _, iface := range ifaces {
+		if strings.Contains(iface.Name, "tailscale") {
+			addrs, _ := iface.Addrs()
+			for _, addr := range addrs {
+				if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
+					if ipnet.IP.To4() != nil {
+						tailscaleIP = ipnet.IP.String()
+					}
+				}
+			}
+		}
+	}
+
+	// 3. Get Public IP
 	publicIP := "unknown"
 	resp, err := http.Get("https://api.ipify.org")
 	if err == nil {
@@ -1154,36 +1170,35 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 	hostname, _ := os.Hostname()
 	currentUser, _ := user.Current()
 	username := "unknown"
+	homeDir := "~"
 	if currentUser != nil {
 		username = currentUser.Username
+		homeDir = currentUser.HomeDir
 	}
 
-	// 3. Detect SSH Port (simple check)
+	// 4. Detect SSH Port
 	sshPort := 22
-	// If we can't listen on 22, something else is likely there (like sshd)
 	l, err := net.Listen("tcp", ":22")
 	if err != nil {
-		// Port 22 is occupied, assume it's SSH
 		sshPort = 22
 	} else {
 		_ = l.Close()
-		// Port 22 is free, SSH might be on another port or not running.
-		// We'll stick with 22 as the primary hint.
 	}
 
-	// 4. Construct and Post Message
+	// 5. Construct and Post Message
 	message := fmt.Sprintf("🌐 **Dexter Discord Service Started**\n\n"+
 		"**System User:** `%s`\n"+
+		"**Home Dir:** `%s`\n"+
 		"**SSH Port:** `%d`\n"+
 		"**Hostname:** `%s`\n"+
-		"**Local Machine:** `127.0.0.1:%d`\n"+
-		"**Network IP:** `%s:%d`\n"+
-		"**Public IP:** `%s`\n\n"+
+		"**Network IP:** `%s` (Local)\n"+
+		"**Tailscale IP:** `%s` (Global)\n"+
+		"**Public IP:** `%s` (Router)\n\n"+
 		"**Local SSH:** `ssh %s@%s -p %d`\n"+
-		"**Public SSH:** `ssh %s@%s -p %d`",
-		username, sshPort, hostname, port, localIP, port, publicIP,
+		"**Global SSH:** `ssh %s@%s -p %d` (via Tailscale)",
+		username, homeDir, sshPort, hostname, localIP, tailscaleIP, publicIP,
 		username, localIP, sshPort,
-		username, publicIP, sshPort)
+		username, tailscaleIP, sshPort)
 
 	_, err = s.ChannelMessageSend(debugChannelID, message)
 	if err != nil {
