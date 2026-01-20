@@ -1206,9 +1206,12 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 
 	// 5. Gather System Vitals
 	// Version
-	dexVersion := os.Getenv("DEX_VERSION")
-	if dexVersion == "" {
-		dexVersion = "dev-build"
+	v := utils.GetVersion()
+	sysVersion := fmt.Sprintf("%s.%s", v.Obj.Major, v.Obj.Minor)
+	svcBuild := v.Str
+	if v.Str == "" || v.Str == "0.0.0.unknown.unknown.unknown.unknown" {
+		sysVersion = "DEV"
+		svcBuild = "dev-build"
 	}
 
 	// GPU
@@ -1246,7 +1249,8 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 
 	message := fmt.Sprintf("🌐 **Dexter Discord Service Started**\n\n"+
 		"**System Vitals:**\n"+
-		"• **Version:** `%s`\n"+
+		"• **System:** `v%s`\n"+
+		"• **Build:** `%s`\n"+
 		"• **GPU:** `%s`\n"+
 		"• **Disk:** `%s`\n"+
 		"• **User:** `%s` (`%s`)\n"+
@@ -1263,7 +1267,7 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		"💻 [`ssh %s@%s -p %d`](%s) (Local)\n"+
 		"🌍 [`ssh %s@%s -p %d`](%s) (Tailscale)\n"+
 		"📱 [`mosh %s@%s`](%s) (Mobile)",
-		dexVersion, gpuInfo, diskInfo, username, homeDir, hostname,
+		sysVersion, svcBuild, gpuInfo, diskInfo, username, homeDir, hostname,
 		localIP, tailscaleIP, publicIP,
 		localIP, frontendPort,
 		tailscaleIP, frontendPort,
