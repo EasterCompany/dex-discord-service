@@ -1195,10 +1195,12 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		"**Tailscale IP:** `%s` (Global)\n"+
 		"**Public IP:** `%s` (Router)\n\n"+
 		"**Local SSH:** `ssh %s@%s -p %d`\n"+
-		"**Global SSH:** `ssh %s@%s -p %d` (via Tailscale)",
+		"**Global SSH:** `ssh %s@%s -p %d` (via Tailscale)\n"+
+		"**Mobile Shell:** `mosh %s@%s` (Recommended for iPhone)",
 		username, homeDir, sshPort, hostname, localIP, tailscaleIP, publicIP,
 		username, localIP, sshPort,
-		username, tailscaleIP, sshPort)
+		username, tailscaleIP, sshPort,
+		username, tailscaleIP)
 
 	_, err = s.ChannelMessageSend(debugChannelID, message)
 	if err != nil {
