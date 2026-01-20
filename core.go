@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/user"
 	"strings"
 	"sync"
 	"time"
@@ -1151,14 +1152,35 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 	}
 
 	hostname, _ := os.Hostname()
+	currentUser, _ := user.Current()
+	username := "unknown"
+	if currentUser != nil {
+		username = currentUser.Username
+	}
 
-	// 3. Construct and Post Message
+	// 3. Detect SSH Port (simple check)
+	sshPort := 22
+	// If we can't listen on 22, something else is likely there (like sshd)
+	l, err := net.Listen("tcp", ":22")
+	if err != nil {
+		// Port 22 is occupied, assume it's SSH
+		sshPort = 22
+	} else {
+		_ = l.Close()
+		// Port 22 is free, SSH might be on another port or not running.
+		// We'll stick with 22 as the primary hint.
+	}
+
+	// 4. Construct and Post Message
 	message := fmt.Sprintf("🚀 **Dexter Discord Service Started**\n"+
+		"**System User:** `%s`\n"+
+		"**SSH Port:** `%d`\n"+
 		"**Hostname:** `%s`\n"+
 		"**Local Machine:** `127.0.0.1:%d`\n"+
 		"**Network IP:** `%s:%d`\n"+
-		"**Public IP:** `%s`",
-		hostname, port, localIP, port, publicIP)
+		"**Public IP:** `%s`\n\n"+
+		"**Connection Command:** `ssh %s@%s -p %d`",
+		username, sshPort, hostname, port, localIP, port, publicIP, username, localIP, sshPort)
 
 	_, err = s.ChannelMessageSend(debugChannelID, message)
 	if err != nil {
