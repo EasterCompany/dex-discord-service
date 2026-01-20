@@ -8,7 +8,9 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
+	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -35,7 +37,7 @@ var activeVoiceConnection *discordgo.VoiceConnection
 var voiceConnectionMutex sync.Mutex
 
 // RunCoreLogic manages the Discord session and its event handlers.
-func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaultChannel, guildID string, roles config.DiscordRoleConfig, rc *redis.Client) error {
+func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaultChannel, guildID string, roles config.DiscordRoleConfig, rc *redis.Client, port int) error {
 	eventServiceURL = serviceURL
 	ttsServiceURL = ttsURL
 	sttServiceURL = sttURL
@@ -166,6 +168,9 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaul
 
 		utils.SetHealthStatus("OK", "Service is running and connected to Discord")
 		endpoints.SetDiscordSession(dg)
+
+		// Post startup debug info (IPs, Port) to debug channel
+		go postStartupDebugInfo(dg, port)
 
 		// Auto-resolve Role IDs if config is stale
 		if serverID != "" {
@@ -1119,5 +1124,44 @@ func enforceRoles(s *discordgo.Session, guildID, userID string, currentRoles []s
 				log.Printf("Failed to remove role %s: %v", rID, err)
 			}
 		}
+	}
+}
+
+// postStartupDebugInfo Gathers and posts network connectivity information to the debug channel.
+func postStartupDebugInfo(s *discordgo.Session, port int) {
+	debugChannelID := "1423328325778149438"
+
+	// 1. Get Local Network IP
+	localIP := "unknown"
+	conn, err := net.Dial("udp", "8.8.8.8:80")
+	if err == nil {
+		localIP = conn.LocalAddr().(*net.UDPAddr).IP.String()
+		_ = conn.Close()
+	}
+
+	// 2. Get Public IP
+	publicIP := "unknown"
+	resp, err := http.Get("https://api.ipify.org")
+	if err == nil {
+		defer func() { _ = resp.Body.Close() }()
+		ipBytes, readErr := io.ReadAll(resp.Body)
+		if readErr == nil {
+			publicIP = string(ipBytes)
+		}
+	}
+
+	hostname, _ := os.Hostname()
+
+	// 3. Construct and Post Message
+	message := fmt.Sprintf("🚀 **Dexter Discord Service Started**\n"+
+		"**Hostname:** `%s`\n"+
+		"**Local Machine:** `127.0.0.1:%d`\n"+
+		"**Network IP:** `%s:%d`\n"+
+		"**Public IP:** `%s`",
+		hostname, port, localIP, port, publicIP)
+
+	_, err = s.ChannelMessageSend(debugChannelID, message)
+	if err != nil {
+		log.Printf("Failed to post startup debug info: %v", err)
 	}
 }
