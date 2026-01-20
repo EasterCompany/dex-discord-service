@@ -238,74 +238,72 @@ func hasHumansInChannel(s *discordgo.Session, guildID, channelID string) bool {
 	return false
 }
 
-// voiceLockManager ensures Dexter holds the cognitive lock while in a voice channel with humans.
+// voiceLockManager periodically ensures Dexter's voice state is correctly synchronized.
 func voiceLockManager(s *discordgo.Session) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
-	lockKey := "system:cognitive_lock"
-	voiceModeID := "Voice Mode"
-
 	for range ticker.C {
-		voiceConnectionMutex.Lock()
-		vc := activeVoiceConnection
-		voiceConnectionMutex.Unlock()
+		evaluateVoiceState(s)
+	}
+}
 
-		// 1. Not in voice? Release lock if we hold it.
-		if vc == nil || vc.ChannelID == "" {
-			val, _ := redisClient.Get(context.Background(), lockKey).Result()
-			if val == voiceModeID {
-				redisClient.Del(context.Background(), lockKey)
-				log.Printf("Voice Lock released (Not in voice)")
-			}
-			continue
+// evaluateVoiceState checks if Dexter is alone in a voice channel and updates the cognitive lock and active process state accordingly.
+func evaluateVoiceState(s *discordgo.Session) {
+	lockKey := "system:cognitive_lock"
+	voiceModeID := "voice-mode"
+
+	voiceConnectionMutex.Lock()
+	vc := activeVoiceConnection
+	voiceConnectionMutex.Unlock()
+
+	// 1. Not in voice? Release lock if we hold it.
+	if vc == nil || vc.ChannelID == "" {
+		val, _ := redisClient.Get(context.Background(), lockKey).Result()
+		if val == voiceModeID {
+			redisClient.Del(context.Background(), lockKey)
+			utils.ClearProcess(context.Background(), redisClient, "voice-mode")
+			log.Printf("Voice Lock released (Not in voice)")
 		}
+		return
+	}
 
-		// 2. In voice? Count humans.
-		// We use the session state which is kept up-to-date by intents.
-		guild, err := s.State.Guild(vc.GuildID)
-		if err != nil {
-			continue
+	// 2. In voice? Count humans.
+	guild, err := s.State.Guild(vc.GuildID)
+	if err != nil {
+		return
+	}
+
+	humanCount := 0
+	for _, vs := range guild.VoiceStates {
+		if vs.ChannelID == vc.ChannelID {
+			if vs.UserID == s.State.User.ID {
+				continue
+			}
+			humanCount++
 		}
+	}
 
-		humanCount := 0
-		for _, vs := range guild.VoiceStates {
-			if vs.ChannelID == vc.ChannelID {
-				// Ignore self
-				if vs.UserID == s.State.User.ID {
-					continue
-				}
-				// We treat everyone else as a "Human" for priority purposes.
-				// (Assuming other bots are negligible or also deserve priority interaction)
-				humanCount++
+	// 3. Update State
+	if humanCount > 0 {
+		// Humans present: Acquire or refresh
+		holder, _ := redisClient.Get(context.Background(), lockKey).Result()
+
+		if holder == "" || holder == voiceModeID {
+			if holder == "" {
+				log.Printf("Voice Mode: Acquiring Cognitive Lock (%d humans detected)", humanCount)
 			}
+			// Set with 60s TTL (renewed frequently)
+			redisClient.Set(context.Background(), lockKey, voiceModeID, 60*time.Second)
+			utils.ReportProcess(context.Background(), redisClient, "voice-mode", fmt.Sprintf("Voice Active (%d users)", humanCount))
 		}
-
-		// 3. Logic
-		if humanCount > 0 {
-			// Humans present: Try to acquire or refresh
-			holder, _ := redisClient.Get(context.Background(), lockKey).Result()
-
-			if holder == "" || holder == voiceModeID {
-				// Free or Ours -> Acquire/Refresh
-				if holder == "" {
-					log.Printf("Voice Mode: Acquiring Cognitive Lock (Humans detected)")
-				}
-				// Set with 60s TTL (renewed every 5s)
-				redisClient.Set(context.Background(), lockKey, voiceModeID, 60*time.Second)
-
-				// Register as an active process for dashboard visibility
-				utils.ReportProcess(context.Background(), redisClient, "voice-mode", fmt.Sprintf("Voice Active (%d users)", humanCount))
-			}
-			// If held by someone else, we do nothing (Wait logic)
-		} else {
-			// Alone in channel: Release if we hold it
-			holder, _ := redisClient.Get(context.Background(), lockKey).Result()
-			if holder == voiceModeID {
-				redisClient.Del(context.Background(), lockKey)
-				utils.ClearProcess(context.Background(), redisClient, "voice-mode")
-				log.Printf("Voice Lock released (Alone in channel)")
-			}
+	} else {
+		// Alone in channel: Release if we hold it
+		holder, _ := redisClient.Get(context.Background(), lockKey).Result()
+		if holder == voiceModeID {
+			redisClient.Del(context.Background(), lockKey)
+			utils.ClearProcess(context.Background(), redisClient, "voice-mode")
+			log.Printf("Voice Lock released (Alone in channel)")
 		}
 	}
 }
@@ -827,6 +825,9 @@ func voiceStateUpdate(s *discordgo.Session, v *discordgo.VoiceStateUpdate) {
 		if err := sendEventData(event); err != nil {
 			log.Printf("Error sending voice state change event: %v", err)
 		}
+
+		// Immediate re-evaluation of voice lock when someone joins or leaves
+		evaluateVoiceState(s)
 	}
 }
 
