@@ -1172,7 +1172,7 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 	}
 
 	// 4. Construct and Post Message
-	message := fmt.Sprintf("🚀 **Dexter Discord Service Started**\n"+
+	message := fmt.Sprintf("🌐 **Dexter Discord Service Started**\n\n"+
 		"**System User:** `%s`\n"+
 		"**SSH Port:** `%d`\n"+
 		"**Hostname:** `%s`\n"+
