@@ -1203,6 +1203,7 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 	}
 
 	// 5. Construct and Post Message
+	frontendPort := 8000
 	message := fmt.Sprintf("🌐 **Dexter Discord Service Started**\n\n"+
 		"**System User:** `%s`\n"+
 		"**Home Dir:** `%s`\n"+
@@ -1211,10 +1212,17 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		"**Network IP:** `%s` (Local)\n"+
 		"**Tailscale IP:** `%s` (Global)\n"+
 		"**Public IP:** `%s` (Router)\n\n"+
-		"**Local SSH:** `ssh %s@%s -p %d`\n"+
-		"**Global SSH:** `ssh %s@%s -p %d` (via Tailscale)\n"+
-		"**Mobile Shell:** `mosh %s@%s` (Recommended for iPhone)",
+		"**Frontend Access:**\n"+
+		"🏠 [Local](http://%s:%d)\n"+
+		"🔗 [Tailscale (Remote)](http://%s:%d)\n"+
+		"🌎 [Production](https://easter.company)\n\n"+
+		"**SSH Access:**\n"+
+		"💻 `ssh %s@%s -p %d` (Local)\n"+
+		"🌍 `ssh %s@%s -p %d` (Tailscale)\n"+
+		"📱 `mosh %s@%s` (Mobile)",
 		username, homeDir, sshPort, hostname, localIP, tailscaleIP, publicIP,
+		localIP, frontendPort,
+		tailscaleIP, frontendPort,
 		username, localIP, sshPort,
 		username, tailscaleIP, sshPort,
 		username, tailscaleIP)
