@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/user"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -467,20 +468,16 @@ func playGreeting(s *discordgo.Session, vc *discordgo.VoiceConnection) {
 	// Simple TTS greeting
 	text := "Dexter online. Systems functional."
 
-	// Create a pipe to stream the TTS audio
-	// Since we are inside the discord service, we can call the TTS service directly via HTTP
-	// or invoke PlayAudioHandler logic. But PlayAudioHandler expects a request body.
-
-	// Better: Call the TTS service to generate audio, and then stream that response to PlayAudioHandler?
-	// No, we can call PlayAudioHandler logic internally or duplicate it.
-	// But simplest is to call our own endpoint? No, we are in the same process.
-
-	// Let's re-use PlayAudioHandler logic but adapted, or just call TTS service and stream to endpoints.PlayAudioHandler via a fake request?
-	// Fake request is easiest to reuse the complex ffmpeg/opus logic.
+	// Create temp file path
+	tmpDir := "/tmp/dexter/audio"
+	_ = os.MkdirAll(tmpDir, 0777)
+	filename := fmt.Sprintf("greeting-%d.wav", time.Now().UnixNano())
+	filePath := filepath.Join(tmpDir, filename)
 
 	ttsURL := ttsServiceURL + "/generate"
 	reqBody := map[string]string{
-		"text": text,
+		"text":        text,
+		"output_path": filePath,
 	}
 	jsonBody, _ := json.Marshal(reqBody)
 
@@ -496,13 +493,26 @@ func playGreeting(s *discordgo.Session, vc *discordgo.VoiceConnection) {
 		return
 	}
 
-	// Now play it. We can create a fake request to our own PlayAudioHandler.
-	// Or we can extract the streaming logic to a helper function.
-	// Let's create a fake request.
+	// Check if we got a file path back
+	var respData map[string]string
+	useFile := false
 
-	fakeReq, _ := http.NewRequest("POST", "/audio/play", resp.Body)
+	// Peek at body to see if it is JSON
+	bodyBytes, _ := io.ReadAll(resp.Body)
+	if json.Unmarshal(bodyBytes, &respData) == nil && respData["file_path"] != "" {
+		useFile = true
+	}
+
+	var fakeReq *http.Request
+	if useFile {
+		fakeReq, _ = http.NewRequest("POST", "/audio/play", nil)
+		fakeReq.Header.Set("X-File-Path", filePath)
+	} else {
+		// Fallback: Use bytes (re-wrap bodyBytes)
+		fakeReq, _ = http.NewRequest("POST", "/audio/play", bytes.NewBuffer(bodyBytes))
+	}
+
 	fakeW := &fakeResponseWriter{}
-
 	endpoints.PlayAudioHandler(fakeW, fakeReq)
 
 	// Emit event

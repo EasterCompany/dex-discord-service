@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
 	"sync"
@@ -168,9 +169,27 @@ func PlayAudioHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Stream audio from request body to ffmpeg to mixer
-	ffmpeg := exec.Command("ffmpeg", "-i", "pipe:0", "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1")
-	ffmpeg.Stdin = r.Body
+	// Check if we are streaming from a file
+	filePath := r.URL.Query().Get("file_path")
+	if filePath == "" {
+		filePath = r.Header.Get("X-File-Path")
+	}
+
+	var ffmpeg *exec.Cmd
+	if filePath != "" {
+		// Validate file exists
+		if _, err := os.Stat(filePath); err != nil {
+			log.Printf("PlayAudioHandler: File not found: %s", filePath)
+			http.Error(w, "File not found", http.StatusBadRequest)
+			return
+		}
+		// Stream from file
+		ffmpeg = exec.Command("ffmpeg", "-i", filePath, "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1")
+	} else {
+		// Stream from request body
+		ffmpeg = exec.Command("ffmpeg", "-i", "pipe:0", "-f", "s16le", "-ar", "48000", "-ac", "2", "pipe:1")
+		ffmpeg.Stdin = r.Body
+	}
 
 	ffmpegOut, err := ffmpeg.StdoutPipe()
 	if err != nil {
@@ -185,7 +204,13 @@ func PlayAudioHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer func() { _ = ffmpeg.Wait() }()
+	defer func() {
+		_ = ffmpeg.Wait()
+		// Clean up temp file if used and it looks like a temp file
+		if filePath != "" && strings.Contains(filePath, "tmp") {
+			_ = os.Remove(filePath)
+		}
+	}()
 
 	// Stream to Mixer (isVoice = true)
 	// We use the mixer's voice context to allow interruption
