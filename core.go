@@ -66,7 +66,7 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaul
 			}
 		},
 		// OnStop callback
-		func(userID, channelID, redisKey string) {
+		func(userID, channelID, redisKey, filePath string) {
 			// user, _ := dg.User(userID)
 			// channel, _ := dg.Channel(channelID)
 
@@ -90,8 +90,8 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaul
 				}
 			*/
 
-			if redisKey != "" {
-				go transcribeAudio(dg, userID, channelID, redisKey)
+			if redisKey != "" || filePath != "" {
+				go transcribeAudio(dg, userID, channelID, redisKey, filePath)
 			}
 		},
 	)
@@ -893,11 +893,18 @@ func sendEventData(eventData interface{}) error {
 	return fmt.Errorf("failed to send event after multiple attempts")
 }
 
-func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey string) {
+func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey, filePath string) {
 	// Call STT Service using multipart form
+	// Priority: filePath > redisKey
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	_ = writer.WriteField("redis_key", redisKey)
+
+	if filePath != "" {
+		_ = writer.WriteField("file_path", filePath)
+	} else if redisKey != "" {
+		_ = writer.WriteField("redis_key", redisKey)
+	}
+
 	_ = writer.Close()
 
 	resp, err := http.Post(sttServiceURL+"/transcribe", writer.FormDataContentType(), body)

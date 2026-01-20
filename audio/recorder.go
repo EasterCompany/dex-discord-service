@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -49,11 +51,11 @@ type VoiceRecorder struct {
 
 	// Callbacks
 	OnStart func(userID, channelID string)
-	OnStop  func(userID, channelID, redisKey string)
+	OnStop  func(userID, channelID, redisKey, filePath string)
 }
 
 // NewVoiceRecorder creates a new voice recorder instance
-func NewVoiceRecorder(ctx context.Context, onStart func(string, string), onStop func(string, string, string)) (*VoiceRecorder, error) {
+func NewVoiceRecorder(ctx context.Context, onStart func(string, string), onStop func(string, string, string, string)) (*VoiceRecorder, error) {
 	// Initialize Redis client
 	redisClient, err := GetRedisClient(ctx)
 	if err != nil {
@@ -157,27 +159,69 @@ func (vr *VoiceRecorder) StopRecording(userID string) (string, error) {
 	// 48kHz * 2 channels = 96000 samples per second, so 0.75s = 72000
 	if len(recording.Buffer) < 72000 {
 		log.Printf("Skipping save for user %s: recording too short (%d samples)", userID, len(recording.Buffer))
-		// Still trigger stop callback but with empty key
+		// Still trigger stop callback but with empty keys
 		if vr.OnStop != nil {
-			go vr.OnStop(userID, recording.ChannelID, "")
+			go vr.OnStop(userID, recording.ChannelID, "", "")
 		}
 		return "", nil
 	}
 
-	// Save the audio to Redis
-	redisKey, err := vr.saveRecordingToRedis(recording, stopTime)
-	if err != nil {
-		return "", fmt.Errorf("failed to save recording to Redis: %w", err)
-	}
+	// Priority 1: Save to shared disk (Optimal)
+	filePath, fileErr := vr.saveRecordingToDisk(recording, stopTime)
 
-	log.Printf("Stopped and saved recording for user %s to Redis key %s", userID, redisKey)
+	// Priority 2: Save to Redis (Fallback)
+	var redisKey string
+	var redisErr error
+
+	if fileErr == nil {
+		log.Printf("Saved audio to disk for user %s: %s", userID, filePath)
+	} else {
+		log.Printf("Failed to save audio to disk: %v. Falling back to Redis.", fileErr)
+		redisKey, redisErr = vr.saveRecordingToRedis(recording, stopTime)
+		if redisErr != nil {
+			return "", fmt.Errorf("failed to save recording to Redis (fallback): %w", redisErr)
+		}
+		log.Printf("Stopped and saved recording for user %s to Redis key %s", userID, redisKey)
+	}
 
 	// Trigger callback asynchronously
 	if vr.OnStop != nil {
-		go vr.OnStop(userID, recording.ChannelID, redisKey)
+		go vr.OnStop(userID, recording.ChannelID, redisKey, filePath)
 	}
 
 	return redisKey, nil
+}
+
+// saveRecordingToDisk saves the recorded audio to a local temporary file
+func (vr *VoiceRecorder) saveRecordingToDisk(recording *UserRecording, stopTime int64) (string, error) {
+	// Create shared directory if it doesn't exist
+	tmpDir := "/tmp/dexter/audio"
+	if err := os.MkdirAll(tmpDir, 0777); err != nil {
+		return "", fmt.Errorf("failed to create temp audio directory: %w", err)
+	}
+
+	filename := fmt.Sprintf("%d-%d-%s-%s.wav", recording.StartTime, stopTime, recording.UserID, recording.ChannelID)
+	filePath := filepath.Join(tmpDir, filename)
+
+	// Create a buffer to write the WAV file
+	var buf bytes.Buffer
+
+	// Write WAV header
+	if err := writeWAVHeaderToBuffer(&buf, len(recording.Buffer)); err != nil {
+		return "", fmt.Errorf("failed to write WAV header: %w", err)
+	}
+
+	// Write PCM data
+	if err := binary.Write(&buf, binary.LittleEndian, recording.Buffer); err != nil {
+		return "", fmt.Errorf("failed to write audio data: %w", err)
+	}
+
+	// Write to file
+	if err := os.WriteFile(filePath, buf.Bytes(), 0644); err != nil {
+		return "", fmt.Errorf("failed to write audio file: %w", err)
+	}
+
+	return filePath, nil
 }
 
 // SetCurrentChannel updates the current channel ID
