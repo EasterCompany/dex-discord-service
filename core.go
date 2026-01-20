@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -1204,6 +1205,18 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 
 	// 5. Construct and Post Message
 	frontendPort := 8000
+	webSvcPort := 8201
+
+	// Helper to create redirect link
+	makeLink := func(host string, target string) string {
+		return fmt.Sprintf("http://%s:%d/open?target=%s", host, webSvcPort, url.QueryEscape(target))
+	}
+
+	// SSH Targets
+	localSSH := fmt.Sprintf("ssh://%s@%s:%d", username, localIP, sshPort)
+	tailSSH := fmt.Sprintf("ssh://%s@%s:%d", username, tailscaleIP, sshPort)
+	mobileMosh := fmt.Sprintf("mosh://%s@%s:%d", username, tailscaleIP, sshPort)
+
 	message := fmt.Sprintf("🌐 **Dexter Discord Service Started**\n\n"+
 		"**System User:** `%s`\n"+
 		"**Home Dir:** `%s`\n"+
@@ -1217,15 +1230,15 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		"🔗 [Tailscale (Remote)](http://%s:%d)\n"+
 		"🌎 [Production](https://easter.company)\n\n"+
 		"**SSH Access:**\n"+
-		"💻 `ssh %s@%s -p %d` (Local)\n"+
-		"🌍 `ssh %s@%s -p %d` (Tailscale)\n"+
-		"📱 `mosh %s@%s` (Mobile)",
+		"💻 [`ssh %s@%s -p %d`](%s) (Local)\n"+
+		"🌍 [`ssh %s@%s -p %d`](%s) (Tailscale)\n"+
+		"📱 [`mosh %s@%s`](%s) (Mobile)",
 		username, homeDir, sshPort, hostname, localIP, tailscaleIP, publicIP,
 		localIP, frontendPort,
 		tailscaleIP, frontendPort,
-		username, localIP, sshPort,
-		username, tailscaleIP, sshPort,
-		username, tailscaleIP)
+		username, localIP, sshPort, makeLink(localIP, localSSH),
+		username, tailscaleIP, sshPort, makeLink(tailscaleIP, tailSSH),
+		username, tailscaleIP, makeLink(tailscaleIP, mobileMosh))
 
 	_, err = s.ChannelMessageSend(debugChannelID, message)
 	if err != nil {
