@@ -1179,8 +1179,11 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		"**Local Machine:** `127.0.0.1:%d`\n"+
 		"**Network IP:** `%s:%d`\n"+
 		"**Public IP:** `%s`\n\n"+
-		"**Connection Command:** `ssh %s@%s -p %d`",
-		username, sshPort, hostname, port, localIP, port, publicIP, username, localIP, sshPort)
+		"**Local SSH:** `ssh %s@%s -p %d`\n"+
+		"**Public SSH:** `ssh %s@%s -p %d`",
+		username, sshPort, hostname, port, localIP, port, publicIP,
+		username, localIP, sshPort,
+		username, publicIP, sshPort)
 
 	_, err = s.ChannelMessageSend(debugChannelID, message)
 	if err != nil {
