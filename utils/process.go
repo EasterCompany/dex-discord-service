@@ -7,6 +7,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/redis/go-redis/v9"
 )
@@ -28,6 +29,7 @@ func ReportProcess(ctx context.Context, redisClient *redis.Client, processID str
 	payload := map[string]interface{}{
 		"id":    processID,
 		"state": state,
+		"pid":   os.Getpid(),
 	}
 	jsonBytes, _ := json.Marshal(payload)
 
