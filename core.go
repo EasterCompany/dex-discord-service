@@ -40,6 +40,7 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaul
 	ttsServiceURL = ttsURL
 	sttServiceURL = sttURL
 	endpoints.SetEventServiceURL(serviceURL)
+	utils.SetEventServiceURL(serviceURL)
 	defaultVoiceChannelID = defaultChannel
 	serverID = guildID
 	roleConfig = roles
