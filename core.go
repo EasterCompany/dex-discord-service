@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/user"
 	"path/filepath"
 	"strings"
@@ -1203,7 +1204,33 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		_ = l.Close()
 	}
 
-	// 5. Construct and Post Message
+	// 5. Gather System Vitals
+	// Version
+	dexVersion := os.Getenv("DEX_VERSION")
+	if dexVersion == "" {
+		dexVersion = "dev-build"
+	}
+
+	// GPU
+	gpuInfo := "None / Unknown"
+	if gpuOut, err := exec.Command("nvidia-smi", "--query-gpu=name", "--format=csv,noheader").Output(); err == nil {
+		gpuInfo = strings.TrimSpace(string(gpuOut))
+	}
+
+	// Disk
+	diskInfo := "Unknown"
+	if diskOut, err := exec.Command("df", "-h", "/").Output(); err == nil {
+		lines := strings.Split(string(diskOut), "\n")
+		if len(lines) >= 2 {
+			fields := strings.Fields(lines[1])
+			if len(fields) >= 5 {
+				// Size, Used, Avail, Use%
+				diskInfo = fmt.Sprintf("%s free / %s total (%s used)", fields[3], fields[1], fields[4])
+			}
+		}
+	}
+
+	// 6. Construct and Post Message
 	frontendPort := 8000
 	webSvcPort := 8201
 
@@ -1218,13 +1245,16 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 	mobileMosh := fmt.Sprintf("mosh://%s@%s:%d", username, tailscaleIP, sshPort)
 
 	message := fmt.Sprintf("🌐 **Dexter Discord Service Started**\n\n"+
-		"**System User:** `%s`\n"+
-		"**Home Dir:** `%s`\n"+
-		"**SSH Port:** `%d`\n"+
-		"**Hostname:** `%s`\n"+
-		"**Network IP:** `%s` (Local)\n"+
-		"**Tailscale IP:** `%s` (Global)\n"+
-		"**Public IP:** `%s` (Router)\n\n"+
+		"**System Vitals:**\n"+
+		"• **Version:** `%s`\n"+
+		"• **GPU:** `%s`\n"+
+		"• **Disk:** `%s`\n"+
+		"• **User:** `%s` (`%s`)\n"+
+		"• **Host:** `%s`\n\n"+
+		"**Network:**\n"+
+		"• **Local:** `%s`\n"+
+		"• **Tailscale:** `%s`\n"+
+		"• **Public:** `%s`\n\n"+
 		"**Frontend Access:**\n"+
 		"🏠 [Local](http://%s:%d)\n"+
 		"🔗 [Tailscale (Remote)](http://%s:%d)\n"+
@@ -1233,7 +1263,8 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		"💻 [`ssh %s@%s -p %d`](%s) (Local)\n"+
 		"🌍 [`ssh %s@%s -p %d`](%s) (Tailscale)\n"+
 		"📱 [`mosh %s@%s`](%s) (Mobile)",
-		username, homeDir, sshPort, hostname, localIP, tailscaleIP, publicIP,
+		dexVersion, gpuInfo, diskInfo, username, homeDir, hostname,
+		localIP, tailscaleIP, publicIP,
 		localIP, frontendPort,
 		tailscaleIP, frontendPort,
 		username, localIP, sshPort, makeLink(localIP, localSSH),
