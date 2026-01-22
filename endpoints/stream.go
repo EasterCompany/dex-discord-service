@@ -49,7 +49,7 @@ var streamManager *StreamManager
 func InitStreamManager() {
 	streamManager = &StreamManager{
 		streams: make(map[string]*StreamSession),
-		ticker:  time.NewTicker(1000 * time.Millisecond), // 1 second throttling
+		ticker:  time.NewTicker(500 * time.Millisecond), // 500ms for smoother streaming
 	}
 	go streamManager.Run()
 }
@@ -237,19 +237,9 @@ func UpdateStreamHandler(w http.ResponseWriter, r *http.Request) {
 	streamManager.mu.Lock()
 	// Look up by initial MessageID (Session Key)
 	if session, ok := streamManager.streams[req.MessageID]; ok {
-		session.CurrentContent = req.Content
-	} else {
-		// Fallback: Direct Edit (Only works if length < 2000, otherwise fails)
-		// This fallback is brittle for >2000 chars, but it's a fallback.
-		go func() {
-			if len(req.Content) > 2000 {
-				log.Printf("STREAM UPDATE ERROR: Fallback edit failed, content too long (%d)", len(req.Content))
-				return
-			}
-			if _, err := discordSession.ChannelMessageEdit(req.ChannelID, req.MessageID, req.Content); err != nil {
-				log.Printf("STREAM UPDATE ERROR: Direct edit failed: %v", err)
-			}
-		}()
+		if !session.Done {
+			session.CurrentContent = req.Content
+		}
 	}
 	streamManager.mu.Unlock()
 
