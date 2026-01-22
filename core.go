@@ -1237,7 +1237,7 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 				statusStr = "ONLINE"
 			}
 			if p.Hostname == status.Vitals.Hostname {
-				statusStr = "ONLINE (THIS)"
+				statusStr = "ONLINE*"
 			}
 			ip := "N/A"
 			if len(p.IPs) > 0 {
