@@ -8,12 +8,10 @@ import (
 	"io"
 	"log"
 	"mime/multipart"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
-	"os/user"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -1151,129 +1149,95 @@ func enforceRoles(s *discordgo.Session, guildID, userID string, currentRoles []s
 func postStartupDebugInfo(s *discordgo.Session, port int) {
 	debugChannelID := "1423328325778149438"
 
-	// 1. Get Local Network IP
-	localIP := "unknown"
-	conn, err := net.Dial("udp", "8.8.8.8:80")
-	if err == nil {
-		localIP = conn.LocalAddr().(*net.UDPAddr).IP.String()
-		_ = conn.Close()
-	}
-
-	// 2. Get Tailscale IP (The "Anywhere" solution)
-	tailscaleIP := "not installed"
-	ifaces, _ := net.Interfaces()
-	for _, iface := range ifaces {
-		if strings.Contains(iface.Name, "tailscale") {
-			addrs, _ := iface.Addrs()
-			for _, addr := range addrs {
-				if ipnet, ok := addr.(*net.IPNet); ok && !ipnet.IP.IsLoopback() {
-					if ipnet.IP.To4() != nil {
-						tailscaleIP = ipnet.IP.String()
-					}
-				}
-			}
-		}
-	}
-
-	// 3. Get Public IP
-	publicIP := "unknown"
-	resp, err := http.Get("https://api.ipify.org")
-	if err == nil {
-		defer func() { _ = resp.Body.Close() }()
-		ipBytes, readErr := io.ReadAll(resp.Body)
-		if readErr == nil {
-			publicIP = string(ipBytes)
-		}
-	}
-
-	hostname, _ := os.Hostname()
-	currentUser, _ := user.Current()
-	username := "unknown"
-	homeDir := "~"
-	if currentUser != nil {
-		username = currentUser.Username
-		homeDir = currentUser.HomeDir
-	}
-
-	// 4. Detect SSH Port
-	sshPort := 22
-	l, err := net.Listen("tcp", ":22")
+	// Gather comprehensive status via CLI
+	dexPath := os.ExpandEnv("$HOME/Dexter/bin/dex")
+	cmd := exec.Command(dexPath, "status", "--json")
+	output, err := cmd.Output()
 	if err != nil {
-		sshPort = 22
-	} else {
-		_ = l.Close()
+		log.Printf("Failed to run dex status: %v", err)
+		return
 	}
 
-	// 5. Gather System Vitals
-	// Version
-	v := utils.GetVersion()
-	sysVersion := fmt.Sprintf("%s.%s", v.Obj.Major, v.Obj.Minor)
-	svcBuild := v.Str
-	if v.Str == "" || v.Str == "0.0.0.unknown.unknown.unknown.unknown" {
-		sysVersion = "DEV"
-		svcBuild = "dev-build"
+	var status struct {
+		Vitals struct {
+			System   string `json:"system"`
+			Build    string `json:"build"`
+			GPU      string `json:"gpu"`
+			Disk     string `json:"disk"`
+			User     string `json:"user"`
+			Hostname string `json:"hostname"`
+		} `json:"vitals"`
+		Network struct {
+			LocalIP          string `json:"local_ip"`
+			PublicIP         string `json:"public_ip"`
+			TailscaleIP      string `json:"tailscale_ip"`
+			TailscaleDevices []struct {
+				Hostname string   `json:"hostname"`
+				IPs      []string `json:"ips"`
+				Online   bool     `json:"online"`
+				OS       string   `json:"os"`
+			} `json:"tailscale_devices"`
+		} `json:"network"`
 	}
 
-	// GPU
-	gpuInfo := "None / Unknown"
-	if gpuOut, err := exec.Command("nvidia-smi", "--query-gpu=name", "--format=csv,noheader").Output(); err == nil {
-		gpuInfo = strings.TrimSpace(string(gpuOut))
+	if err := json.Unmarshal(output, &status); err != nil {
+		log.Printf("Failed to parse dex status JSON: %v", err)
+		return
 	}
-
-	// Disk
-	diskInfo := "Unknown"
-	if diskOut, err := exec.Command("df", "-h", "/").Output(); err == nil {
-		lines := strings.Split(string(diskOut), "\n")
-		if len(lines) >= 2 {
-			fields := strings.Fields(lines[1])
-			if len(fields) >= 5 {
-				// Size, Used, Avail, Use%
-				diskInfo = fmt.Sprintf("%s free / %s total (%s used)", fields[3], fields[1], fields[4])
-			}
-		}
-	}
-
-	// 6. Construct and Post Message
-	frontendPort := 8000
-	webSvcPort := 8201
 
 	// Helper to create redirect link
 	makeLink := func(host string, target string) string {
-		return fmt.Sprintf("http://%s:%d/open?target=%s", host, webSvcPort, url.QueryEscape(target))
+		return fmt.Sprintf("http://%s:8201/open?target=%s", host, url.QueryEscape(target))
 	}
 
-	// SSH Targets
-	localSSH := fmt.Sprintf("ssh://%s@%s:%d", username, localIP, sshPort)
-	tailSSH := fmt.Sprintf("ssh://%s@%s:%d", username, tailscaleIP, sshPort)
-	mobileMosh := fmt.Sprintf("mosh://%s@%s:%d", username, tailscaleIP, sshPort)
+	username := strings.Split(status.Vitals.User, " ")[0]
+	localIP := status.Network.LocalIP
+	tailscaleIP := status.Network.TailscaleIP
+	publicIP := status.Network.PublicIP
 
+	// 6. Construct and Post Message
 	message := fmt.Sprintf("🌐 **Dexter Discord Service Started**\n\n"+
 		"**System Vitals:**\n"+
 		"• **System:** `v%s`\n"+
 		"• **Build:** `%s`\n"+
 		"• **GPU:** `%s`\n"+
 		"• **Disk:** `%s`\n"+
-		"• **User:** `%s` (`%s`)\n"+
+		"• **User:** `%s`\n"+
 		"• **Host:** `%s`\n\n"+
 		"**Network:**\n"+
 		"• **Local:** `%s`\n"+
 		"• **Tailscale:** `%s`\n"+
 		"• **Public:** `%s`\n\n"+
 		"**Frontend Access:**\n"+
-		"🏠 [Local](http://%s:%d)\n"+
-		"🔗 [Tailscale (Remote)](http://%s:%d)\n"+
+		"🏠 [Local](http://%s:8000)\n"+
+		"🔗 [Tailscale (Remote)](http://%s:8000)\n"+
 		"🌎 [Production](https://easter.company)\n\n"+
 		"**SSH Access:**\n"+
-		"💻 [`ssh %s@%s -p %d`](%s) (Local)\n"+
-		"🌍 [`ssh %s@%s -p %d`](%s) (Tailscale)\n"+
+		"💻 [`ssh %s@%s`](%s) (Local)\n"+
+		"🌍 [`ssh %s@%s`](%s) (Tailscale)\n"+
 		"📱 [`mosh %s@%s`](%s) (Mobile)",
-		sysVersion, svcBuild, gpuInfo, diskInfo, username, homeDir, hostname,
+		status.Vitals.System, status.Vitals.Build, status.Vitals.GPU, status.Vitals.Disk, status.Vitals.User, status.Vitals.Hostname,
 		localIP, tailscaleIP, publicIP,
-		localIP, frontendPort,
-		tailscaleIP, frontendPort,
-		username, localIP, sshPort, makeLink(localIP, localSSH),
-		username, tailscaleIP, sshPort, makeLink(tailscaleIP, tailSSH),
-		username, tailscaleIP, makeLink(tailscaleIP, mobileMosh))
+		localIP, tailscaleIP,
+		username, localIP, makeLink(localIP, "ssh://"+username+"@"+localIP),
+		username, tailscaleIP, makeLink(tailscaleIP, "ssh://"+username+"@"+tailscaleIP),
+		username, tailscaleIP, makeLink(tailscaleIP, "mosh://"+username+"@"+tailscaleIP))
+
+	// Add Tailscale Devices if any online
+	var peerInfo []string
+	for _, p := range status.Network.TailscaleDevices {
+		if p.Online && p.Hostname != status.Vitals.Hostname {
+			ip := "Unknown"
+			if len(p.IPs) > 0 {
+				ip = p.IPs[0]
+			}
+			peerInfo = append(peerInfo, fmt.Sprintf("• **%s** (%s): `ssh %s@%s`", p.Hostname, p.OS, username, ip))
+		}
+	}
+
+	if len(peerInfo) > 0 {
+		message += "\n\n**Tailscale Peers:**\n" + strings.Join(peerInfo, "\n")
+	}
 
 	_, err = s.ChannelMessageSend(debugChannelID, message)
 	if err != nil {
