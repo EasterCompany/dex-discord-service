@@ -1198,7 +1198,7 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 	// 6. Construct and Post Message
 	message := fmt.Sprintf("🌐 **Dexter Discord Service Started**\n\n"+
 		"**System Vitals:**\n"+
-		"• **System:** `v%s`\n"+
+		"• **System:** `%s`\n"+
 		"• **Build:** `%s`\n"+
 		"• **GPU:** `%s`\n"+
 		"• **Disk:** `%s`\n"+
@@ -1223,24 +1223,49 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		username, tailscaleIP, makeLink(tailscaleIP, "ssh://"+username+"@"+tailscaleIP),
 		username, tailscaleIP, makeLink(tailscaleIP, "mosh://"+username+"@"+tailscaleIP))
 
-	// Add Tailscale Devices if any online
-	var peerInfo []string
-	for _, p := range status.Network.TailscaleDevices {
-		if p.Online && p.Hostname != status.Vitals.Hostname {
-			ip := "Unknown"
+	// Add Tailscale Devices as a Markdown Table
+
+	if len(status.Network.TailscaleDevices) > 0 {
+
+		tableHeader := "\n\n**Tailscale Network:**\n```\nDEVICE          IP              OS     STATUS\n--------------  --------------  -----  -------\n"
+
+		tableBody := ""
+
+		for _, p := range status.Network.TailscaleDevices {
+			statusStr := "OFFLINE"
+			if p.Online {
+				statusStr = "ONLINE"
+			}
+			if p.Hostname == status.Vitals.Hostname {
+				statusStr = "ONLINE (THIS)"
+			}
+			ip := "N/A"
 			if len(p.IPs) > 0 {
 				ip = p.IPs[0]
 			}
-			peerInfo = append(peerInfo, fmt.Sprintf("• **%s** (%s): `ssh %s@%s`", p.Hostname, p.OS, username, ip))
-		}
-	}
 
-	if len(peerInfo) > 0 {
-		message += "\n\n**Tailscale Peers:**\n" + strings.Join(peerInfo, "\n")
+			// Format row with fixed widths
+			tableBody += fmt.Sprintf("% -14s  % -14s  % -5s  %s\n",
+				uiTruncate(p.Hostname, 14),
+				uiTruncate(ip, 14),
+				uiTruncate(p.OS, 5),
+				statusStr)
+		}
+		message += tableHeader + tableBody + "```"
 	}
 
 	_, err = s.ChannelMessageSend(debugChannelID, message)
 	if err != nil {
 		log.Printf("Failed to post startup debug info: %v", err)
 	}
+}
+
+func uiTruncate(text string, maxLen int) string {
+	if len(text) <= maxLen {
+		return text
+	}
+	if maxLen <= 3 {
+		return text[:maxLen]
+	}
+	return text[:maxLen-3] + "..."
 }
