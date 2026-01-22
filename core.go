@@ -1162,7 +1162,9 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		Vitals struct {
 			System   string `json:"system"`
 			Build    string `json:"build"`
+			CPU      string `json:"cpu"`
 			GPU      string `json:"gpu"`
+			Memory   string `json:"memory"`
 			Disk     string `json:"disk"`
 			User     string `json:"user"`
 			Hostname string `json:"hostname"`
@@ -1200,7 +1202,9 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		"**System Vitals:**\n"+
 		"• **System:** `%s`\n"+
 		"• **Build:** `%s`\n"+
+		"• **CPU:** `%s`\n"+
 		"• **GPU:** `%s`\n"+
+		"• **RAM:** `%s`\n"+
 		"• **Disk:** `%s`\n"+
 		"• **User:** `%s`\n"+
 		"• **Host:** `%s`\n\n"+
@@ -1216,7 +1220,7 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		"💻 [`ssh %s@%s`](%s) (Local)\n"+
 		"🌍 [`ssh %s@%s`](%s) (Tailscale)\n"+
 		"📱 [`mosh %s@%s`](%s) (Mobile)",
-		status.Vitals.System, status.Vitals.Build, status.Vitals.GPU, status.Vitals.Disk, status.Vitals.User, status.Vitals.Hostname,
+		status.Vitals.System, status.Vitals.Build, status.Vitals.CPU, status.Vitals.GPU, status.Vitals.Memory, status.Vitals.Disk, status.Vitals.User, status.Vitals.Hostname,
 		localIP, tailscaleIP, publicIP,
 		localIP, tailscaleIP,
 		username, localIP, makeLink(localIP, "ssh://"+username+"@"+localIP),
