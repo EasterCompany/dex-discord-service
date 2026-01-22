@@ -1160,8 +1160,9 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 
 	var status struct {
 		Vitals struct {
-			System   string `json:"system"`
-			Build    string `json:"build"`
+			CLI      string `json:"cli"`
+			Discord  string `json:"discord"`
+			Release  string `json:"release"`
 			CPU      string `json:"cpu"`
 			GPU      string `json:"gpu"`
 			Memory   string `json:"memory"`
@@ -1200,12 +1201,12 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 	// 6. Construct and Post Message
 	message := fmt.Sprintf("🌐 **Dexter Discord Service Started**\n\n"+
 		"**System Vitals:**\n"+
-		"• **System:** `%s`\n"+
-		"• **Build:** `%s`\n"+
+		"• **Discord:** `%s`\n"+
+		"• **Release:** `%s`\n"+
 		"• **CPU:** `%s`\n"+
-		"• **GPU:** `%s`\n"+
 		"• **RAM:** `%s`\n"+
 		"• **Disk:** `%s`\n"+
+		"• **GPU:** `%s`\n"+
 		"• **User:** `%s`\n"+
 		"• **Host:** `%s`\n\n"+
 		"**Network:**\n"+
@@ -1220,7 +1221,7 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		"💻 [`ssh %s@%s`](%s) (Local)\n"+
 		"🌍 [`ssh %s@%s`](%s) (Tailscale)\n"+
 		"📱 [`mosh %s@%s`](%s) (Mobile)",
-		status.Vitals.System, status.Vitals.Build, status.Vitals.CPU, status.Vitals.GPU, status.Vitals.Memory, status.Vitals.Disk, status.Vitals.User, status.Vitals.Hostname,
+		status.Vitals.Discord, status.Vitals.Release, status.Vitals.CPU, status.Vitals.Memory, status.Vitals.Disk, status.Vitals.GPU, status.Vitals.User, status.Vitals.Hostname,
 		localIP, tailscaleIP, publicIP,
 		localIP, tailscaleIP,
 		username, localIP, makeLink(localIP, "ssh://"+username+"@"+localIP),
