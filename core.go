@@ -255,6 +255,8 @@ func voiceLockManager(s *discordgo.Session) {
 	}
 }
 
+var lastVoiceModeActive bool
+
 // evaluateVoiceState checks if Dexter is alone in a voice channel and updates the cognitive lock and active process state accordingly.
 func evaluateVoiceState(s *discordgo.Session) {
 	lockKey := "system:cognitive_lock"
@@ -271,6 +273,11 @@ func evaluateVoiceState(s *discordgo.Session) {
 			redisClient.Del(context.Background(), lockKey)
 			utils.ClearProcess(context.Background(), redisClient, "voice-mode")
 			log.Printf("Voice Lock released (Not in voice)")
+		}
+
+		if lastVoiceModeActive {
+			hibernateSTTTTS()
+			lastVoiceModeActive = false
 		}
 		return
 	}
@@ -291,8 +298,10 @@ func evaluateVoiceState(s *discordgo.Session) {
 		}
 	}
 
+	currentVoiceModeActive := humanCount > 0
+
 	// 3. Update State
-	if humanCount > 0 {
+	if currentVoiceModeActive {
 		// Humans present: Acquire or refresh
 		holder, _ := redisClient.Get(context.Background(), lockKey).Result()
 
@@ -304,6 +313,11 @@ func evaluateVoiceState(s *discordgo.Session) {
 			redisClient.Set(context.Background(), lockKey, voiceModeID, 60*time.Second)
 			utils.ReportProcess(context.Background(), redisClient, "voice-mode", fmt.Sprintf("Voice Active (%d users)", humanCount))
 		}
+
+		if !lastVoiceModeActive {
+			wakeupSTTTTS()
+			lastVoiceModeActive = true
+		}
 	} else {
 		// Alone in channel: Release if we hold it
 		holder, _ := redisClient.Get(context.Background(), lockKey).Result()
@@ -312,6 +326,33 @@ func evaluateVoiceState(s *discordgo.Session) {
 			utils.ClearProcess(context.Background(), redisClient, "voice-mode")
 			log.Printf("Voice Lock released (Alone in channel)")
 		}
+
+		if lastVoiceModeActive {
+			hibernateSTTTTS()
+			lastVoiceModeActive = false
+		}
+	}
+}
+
+func wakeupSTTTTS() {
+	if sttServiceURL != "" {
+		log.Printf("Voice Mode: Waking up STT service at %s...", sttServiceURL)
+		go func() { _, _ = http.Post(sttServiceURL+"/wakeup", "application/json", nil) }()
+	}
+	if ttsServiceURL != "" {
+		log.Printf("Voice Mode: Waking up TTS service at %s...", ttsServiceURL)
+		go func() { _, _ = http.Post(ttsServiceURL+"/wakeup", "application/json", nil) }()
+	}
+}
+
+func hibernateSTTTTS() {
+	if sttServiceURL != "" {
+		log.Printf("Voice Mode: Hibernating STT service at %s...", sttServiceURL)
+		go func() { _, _ = http.Post(sttServiceURL+"/hibernate", "application/json", nil) }()
+	}
+	if ttsServiceURL != "" {
+		log.Printf("Voice Mode: Hibernating TTS service at %s...", ttsServiceURL)
+		go func() { _, _ = http.Post(ttsServiceURL+"/hibernate", "application/json", nil) }()
 	}
 }
 
