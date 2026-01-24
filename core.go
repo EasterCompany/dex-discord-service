@@ -276,7 +276,7 @@ func evaluateVoiceState(s *discordgo.Session) {
 		}
 
 		if lastVoiceModeActive {
-			hibernateSTTTTS()
+			hibernateSTTTTS(s, "", "") // No specific channel needed for global hibernation
 			lastVoiceModeActive = false
 		}
 		return
@@ -315,7 +315,7 @@ func evaluateVoiceState(s *discordgo.Session) {
 		}
 
 		if !lastVoiceModeActive {
-			wakeupSTTTTS()
+			wakeupSTTTTS(s, vc.GuildID, vc.ChannelID)
 			lastVoiceModeActive = true
 		}
 	} else {
@@ -328,13 +328,13 @@ func evaluateVoiceState(s *discordgo.Session) {
 		}
 
 		if lastVoiceModeActive {
-			hibernateSTTTTS()
+			hibernateSTTTTS(s, vc.GuildID, vc.ChannelID)
 			lastVoiceModeActive = false
 		}
 	}
 }
 
-func wakeupSTTTTS() {
+func wakeupSTTTTS(s *discordgo.Session, guildID, channelID string) {
 	if sttServiceURL != "" {
 		log.Printf("Voice Mode: Waking up STT service at %s...", sttServiceURL)
 		go func() { _, _ = http.Post(sttServiceURL+"/wakeup", "application/json", nil) }()
@@ -343,9 +343,14 @@ func wakeupSTTTTS() {
 		log.Printf("Voice Mode: Waking up TTS service at %s...", ttsServiceURL)
 		go func() { _, _ = http.Post(ttsServiceURL+"/wakeup", "application/json", nil) }()
 	}
+	// Synchronize Discord state: Active voice mode means we are listening and speaking
+	if s != nil && guildID != "" && channelID != "" {
+		log.Printf("Voice Mode: Setting Discord state to Undeafened/Unmuted")
+		_, _ = s.ChannelVoiceJoin(guildID, channelID, false, false)
+	}
 }
 
-func hibernateSTTTTS() {
+func hibernateSTTTTS(s *discordgo.Session, guildID, channelID string) {
 	if sttServiceURL != "" {
 		log.Printf("Voice Mode: Hibernating STT service at %s...", sttServiceURL)
 		go func() { _, _ = http.Post(sttServiceURL+"/hibernate", "application/json", nil) }()
@@ -353,6 +358,11 @@ func hibernateSTTTTS() {
 	if ttsServiceURL != "" {
 		log.Printf("Voice Mode: Hibernating TTS service at %s...", ttsServiceURL)
 		go func() { _, _ = http.Post(ttsServiceURL+"/hibernate", "application/json", nil) }()
+	}
+	// Synchronize Discord state: Hibernating means we are neither listening nor speaking
+	if s != nil && guildID != "" && channelID != "" {
+		log.Printf("Voice Mode: Setting Discord state to Deafened/Muted")
+		_, _ = s.ChannelVoiceJoin(guildID, channelID, true, true)
 	}
 }
 
