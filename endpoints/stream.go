@@ -63,12 +63,43 @@ func chunkString(s string, chunkSize int) []string {
 	}
 	var chunks []string
 	runes := []rune(s)
-	for i := 0; i < len(runes); i += chunkSize {
-		end := i + chunkSize
-		if end > len(runes) {
-			end = len(runes)
+
+	currentStart := 0
+	for currentStart < len(runes) {
+		remaining := len(runes) - currentStart
+		if remaining <= chunkSize {
+			chunks = append(chunks, string(runes[currentStart:]))
+			break
 		}
-		chunks = append(chunks, string(runes[i:end]))
+
+		// Tentative split point at max size
+		splitIdx := currentStart + chunkSize
+
+		// Search backwards for a safe split point (newline or space)
+		// Scan back up to 500 chars for newline
+		foundSplit := false
+		for i := splitIdx; i > currentStart && i > splitIdx-500; i-- {
+			if runes[i] == '\n' {
+				splitIdx = i + 1 // Include newline in the current chunk
+				foundSplit = true
+				break
+			}
+		}
+
+		// If no newline, look for space (up to 200 chars back)
+		if !foundSplit {
+			for i := splitIdx; i > currentStart && i > splitIdx-200; i-- {
+				if runes[i] == ' ' {
+					splitIdx = i + 1 // Include space
+					foundSplit = true
+					break
+				}
+			}
+		}
+
+		// If still no split found, force split at limit
+		chunks = append(chunks, string(runes[currentStart:splitIdx]))
+		currentStart = splitIdx
 	}
 	return chunks
 }
