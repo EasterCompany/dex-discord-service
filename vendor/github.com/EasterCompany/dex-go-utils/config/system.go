@@ -1,12 +1,49 @@
 package config
 
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+)
+
 // SystemConfig represents the structure of system.json
+
 type SystemConfig struct {
-	MemoryBytes int64         `json:"MEMORY_BYTES"`
-	CPU         []CPUInfo     `json:"CPU"`
-	GPU         []GPUInfo     `json:"GPU"`
-	Storage     []StorageInfo `json:"STORAGE"`
-	Packages    []PackageInfo `json:"PACKAGES"`
+	OS string `json:"OS"`
+
+	Architecture string `json:"ARCHITECTURE"`
+
+	MemoryBytes int64 `json:"MEMORY_BYTES"`
+
+	CPU []CPUInfo `json:"CPU"`
+
+	GPU []GPUInfo `json:"GPU"`
+
+	Storage []StorageInfo `json:"STORAGE"`
+
+	Packages []PackageInfo `json:"PACKAGES"`
+}
+
+// LoadSystem loads the system configuration from the standard Dexter config location.
+func LoadSystem() (*SystemConfig, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, fmt.Errorf("could not get home directory: %w", err)
+	}
+
+	path := filepath.Join(home, "Dexter", "config", "system.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("could not read system.json at %s: %w", path, err)
+	}
+
+	var config SystemConfig
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("could not unmarshal system.json: %w", err)
+	}
+
+	return &config, nil
 }
 
 // CPUInfo holds details about a CPU
@@ -22,7 +59,7 @@ type CPUInfo struct {
 type GPUInfo struct {
 	Label            string `json:"LABEL"`
 	CUDA             int    `json:"CUDA"`
-	VRAM             int    `json:"VRAM"`
+	VRAM             int64  `json:"VRAM"`
 	ComputePriority  int    `json:"COMPUTE_PRIORITY"`
 	ComputePotential int    `json:"COMPUTE_POTENTIAL"`
 }
