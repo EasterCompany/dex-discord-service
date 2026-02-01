@@ -13,7 +13,7 @@ import (
 var (
 	discordSession *discordgo.Session
 	sessionMutex   sync.RWMutex
-	roleConfig     config.DiscordRoleConfig
+	roleConfig     config.RoleConfig
 )
 
 // SetDiscordSession sets the Discord session for endpoints to use
@@ -24,7 +24,7 @@ func SetDiscordSession(s *discordgo.Session) {
 }
 
 // SetUserConfig sets the role mapping for handlers
-func SetUserConfig(roles config.DiscordRoleConfig) {
+func SetUserConfig(roles config.RoleConfig) {
 	sessionMutex.Lock()
 	defer sessionMutex.Unlock()
 	roleConfig = roles

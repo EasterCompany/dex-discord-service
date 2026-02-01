@@ -24,7 +24,7 @@ const (
 )
 
 // GetUserLevel resolves the user level for a Discord user.
-func GetUserLevel(s *discordgo.Session, redisClient *redis.Client, guildID, userID string, roles config.DiscordRoleConfig) UserLevel {
+func GetUserLevel(s *discordgo.Session, redisClient *redis.Client, guildID, userID string, roles config.RoleConfig) UserLevel {
 	// 1. Self Check
 	if userID == s.State.User.ID {
 		return LevelMe

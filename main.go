@@ -26,8 +26,6 @@ var (
 	branch    string
 	commit    string
 	buildDate string
-	buildYear string
-	buildHash string
 	arch      string
 )
 
@@ -37,8 +35,8 @@ func main() {
 		arg := os.Args[1]
 		switch arg {
 		case "version", "--version", "-v":
-			// Format version like other services: major.minor.patch.branch.commit.buildDate.arch.buildHash
-			utils.SetVersion(version, branch, commit, buildDate, buildYear, buildHash, arch)
+			// Format version like other services: major.minor.patch.branch.commit.buildDate.arch
+			utils.SetVersion(version, branch, commit, buildDate, arch)
 			fmt.Println(utils.GetVersion().Str)
 			os.Exit(0)
 		case "help", "--help", "-h":
@@ -55,7 +53,7 @@ func main() {
 	flag.Parse()
 
 	// Set the version for the service.
-	utils.SetVersion(version, branch, commit, buildDate, buildYear, buildHash, arch)
+	utils.SetVersion(version, branch, commit, buildDate, arch)
 
 	// Load the service map and find our own configuration.
 	serviceMap, err := config.LoadServiceMap()
@@ -93,42 +91,10 @@ func main() {
 		log.Fatalf("FATAL: Discord token not found or invalid in options.json")
 	}
 
-	// Find the event service configuration from the service map
-	var eventServiceConfig *config.ServiceEntry
-	if csServices, ok := serviceMap.Services["cs"]; ok {
-		for _, service := range csServices {
-			if service.ID == "dex-event-service" {
-				eventServiceConfig = &service
-				break
-			}
-		}
-	}
-	if eventServiceConfig == nil {
-		log.Fatalf("FATAL: Event service 'dex-event-service' not found in service-map.json. Shutting down.")
-	}
-	eventServiceURL := fmt.Sprintf("http://%s:%s", eventServiceConfig.Domain, eventServiceConfig.Port)
-
-	// Find the TTS service configuration
-	var ttsServiceURL = "http://127.0.0.1:8200" // Default fallback
-	if beServices, ok := serviceMap.Services["be"]; ok {
-		for _, service := range beServices {
-			if service.ID == "dex-tts-service" {
-				ttsServiceURL = fmt.Sprintf("http://%s:%s", service.Domain, service.Port)
-				break
-			}
-		}
-	}
-
-	// Find the STT service configuration
-	var sttServiceURL = "http://127.0.0.1:8202" // Default fallback
-	if beServices, ok := serviceMap.Services["be"]; ok {
-		for _, service := range beServices {
-			if service.ID == "dex-stt-service" {
-				sttServiceURL = fmt.Sprintf("http://%s:%s", service.Domain, service.Port)
-				break
-			}
-		}
-	}
+	// Resolve Service URLs
+	eventServiceURL := serviceMap.GetServiceURL("dex-event-service", "cs", "8100")
+	ttsServiceURL := serviceMap.GetServiceURL("dex-tts-service", "be", "8200")
+	sttServiceURL := serviceMap.GetServiceURL("dex-stt-service", "be", "8202")
 
 	// Create a context for graceful shutdown
 	ctx, cancel := context.WithCancel(context.Background())

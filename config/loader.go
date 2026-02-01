@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	sharedConfig "github.com/EasterCompany/dex-go-utils/config"
 )
 
 // expandPath resolves paths like "~/" to the user's home directory.
@@ -46,16 +48,12 @@ func loadAndUnmarshal(filename string, v interface{}) error {
 
 // LoadServiceMap loads the service-map.json file.
 func LoadServiceMap() (*ServiceMapConfig, error) {
-	var cfg ServiceMapConfig
-	err := loadAndUnmarshal("service-map.json", &cfg)
-	return &cfg, err
+	return sharedConfig.LoadServiceMap()
 }
 
 // LoadOptions loads the options.json file.
 func LoadOptions() (*OptionsConfig, error) {
-	var cfg OptionsConfig
-	err := loadAndUnmarshal("options.json", &cfg)
-	return &cfg, err
+	return sharedConfig.LoadOptions()
 }
 
 // LoadSystem loads the system.json file.

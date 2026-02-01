@@ -33,13 +33,13 @@ var sttServiceURL string
 var defaultVoiceChannelID string
 var serverID string
 var redisClient *redis.Client
-var roleConfig config.DiscordRoleConfig
+var roleConfig config.RoleConfig
 var voiceRecorder *audio.VoiceRecorder
 var activeVoiceConnection *discordgo.VoiceConnection
 var voiceConnectionMutex sync.Mutex
 
 // RunCoreLogic manages the Discord session and its event handlers.
-func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaultChannel, guildID string, roles config.DiscordRoleConfig, rc *redis.Client, port int) error {
+func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaultChannel, guildID string, roles config.RoleConfig, rc *redis.Client, port int) error {
 	eventServiceURL = serviceURL
 	ttsServiceURL = ttsURL
 	sttServiceURL = sttURL
