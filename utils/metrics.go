@@ -1,8 +1,9 @@
 package utils
 
 import (
-	"runtime"
 	"sync/atomic"
+
+	sharedUtils "github.com/EasterCompany/dex-go-utils/utils"
 )
 
 // Metrics holds counters for service operations
@@ -33,38 +34,16 @@ func IncrementReconnects() {
 	atomic.AddInt64(&discordReconnects, 1)
 }
 
-// GetCPUUsage estimates CPU usage based on goroutine count
-func GetCPUUsage() float64 {
-	goroutines := float64(runtime.NumGoroutine())
-	// Rough estimate: higher goroutine count suggests more CPU activity
-	// Cap at 100%
-	cpuPercent := goroutines / 2.0
-	if cpuPercent > 100.0 {
-		cpuPercent = 100.0
-	}
-	return cpuPercent
-}
-
-// GetMemoryUsage returns memory usage in Megabytes (MB)
-func GetMemoryUsage() float64 {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	// Return total system memory obtained from the OS in MB
-	return float64(m.Sys) / 1024.0 / 1024.0
-}
-
 // GetMetrics returns the current metrics as a map
 func GetMetrics() map[string]interface{} {
+	sysMetrics := sharedUtils.GetMetrics()
+
 	return map[string]interface{}{
 		"messages_received":  atomic.LoadInt64(&messagesReceived),
 		"messages_sent":      atomic.LoadInt64(&messagesSent),
 		"events_sent":        atomic.LoadInt64(&eventsSent),
 		"discord_reconnects": atomic.LoadInt64(&discordReconnects),
-		"cpu": map[string]interface{}{
-			"avg": GetCPUUsage(),
-		},
-		"memory": map[string]interface{}{
-			"avg": GetMemoryUsage(),
-		},
+		"cpu":                sysMetrics.CPU,
+		"memory":             sysMetrics.Memory,
 	}
 }
