@@ -11,17 +11,8 @@ import (
 
 // ServiceMapConfig represents the structure of service-map.json
 type ServiceMapConfig struct {
-	ServiceTypes []ServiceType             `json:"service_types"`
+	ServiceTypes []string                  `json:"service_types"`
 	Services     map[string][]ServiceEntry `json:"services"`
-}
-
-// ServiceType defines a category of services
-type ServiceType struct {
-	Type        string `json:"type"`
-	Label       string `json:"label"`
-	Description string `json:"description"`
-	MinPort     int    `json:"min_port"`
-	MaxPort     int    `json:"max_port"`
 }
 
 // ServiceEntry represents a single service in the service map

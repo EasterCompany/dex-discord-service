@@ -6,7 +6,6 @@ import (
 
 // Aliases to shared types in dex-go-utils
 type ServiceMapConfig = sharedConfig.ServiceMapConfig
-type ServiceType = sharedConfig.ServiceType
 type ServiceEntry = sharedConfig.ServiceEntry
 type ServiceCredentials = sharedConfig.ServiceCredentials
 type OptionsConfig = sharedConfig.OptionsConfig
