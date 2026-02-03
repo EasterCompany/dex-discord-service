@@ -47,6 +47,14 @@ func (s *ServiceEntry) IsBuildable() bool {
 	return s.Type == "cs" || s.Type == "co"
 }
 
+// GetInternalPort returns the internal_port or a fallback value if not set.
+func (s *ServiceEntry) GetInternalPort(fallback string) string {
+	if s.InternalPort != "" {
+		return s.InternalPort
+	}
+	return fallback
+}
+
 // ServiceCredentials holds connection credentials for services like Redis
 type ServiceCredentials struct {
 	Username string `json:"username,omitempty"`
