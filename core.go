@@ -718,14 +718,35 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 	utils.IncrementMessagesReceived()
 
+	// 0. Fetch Channel Info Early
+	channel, err := s.Channel(m.ChannelID)
+	if err != nil {
+		log.Printf("Error fetching channel info: %v", err)
+	}
+
 	channelName := "DM"
 	serverID := ""
 	if m.GuildID != "" {
-		channel, err := s.Channel(m.ChannelID)
-		if err == nil {
+		if channel != nil {
 			channelName = channel.Name
 		}
 		serverID = m.GuildID
+	}
+
+	// 1. EXCLUSIVE: Build Channel & Threads Handling
+	isBuildRelated := m.ChannelID == buildChannelID
+	if !isBuildRelated && channel != nil && channel.ParentID == buildChannelID {
+		isBuildRelated = true
+	}
+
+	if isBuildRelated {
+		// Ignore if already in a thread (only top-level messages create threads)
+		if channel != nil && channel.IsThread() {
+			return
+		}
+
+		go handleUserChannelMessage(s, m)
+		return // EXCLUSIVE: Do not trigger general handlers or emit events for this channel
 	}
 
 	// Pre-process content to replace mentions with display names
@@ -786,20 +807,25 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	event := utils.UserSentMessageEvent{
 		GenericMessagingEvent: utils.GenericMessagingEvent{
-			Type:        eventType,
-			Source:      "discord",
-			UserID:      m.Author.ID,
-			UserName:    userName,
-			UserLevel:   string(utils.GetUserLevel(s, redisClient, m.GuildID, m.Author.ID, roleConfig)),
-			ChannelID:   m.ChannelID,
-			ChannelName: channelName,
-			ServerID:    serverID,
-			Timestamp:   m.Timestamp,
+			Type:            eventType,
+			Source:          "discord",
+			UserID:          m.Author.ID,
+			UserName:        userName,
+			UserLevel:       string(utils.GetUserLevel(s, redisClient, m.GuildID, m.Author.ID, roleConfig)),
+			ChannelID:       m.ChannelID,
+			ChannelName:     channelName,
+			ParentChannelID: "", // Will populate below
+			ServerID:        serverID,
+			Timestamp:       m.Timestamp,
 		},
 		MessageID:    m.ID,
 		Content:      content,
 		MentionedBot: false,
 		Attachments:  attachments,
+	}
+
+	if channel != nil && channel.ParentID != "" {
+		event.ParentChannelID = channel.ParentID
 	}
 
 	for _, user := range m.Mentions {
@@ -827,17 +853,6 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		} else {
 			log.Printf("Failed to get bot member for role mention check: %v", err)
 		}
-	}
-
-	if m.ChannelID == buildChannelID {
-		// Ignore if already in a thread (only top-level messages create threads)
-		channel, err := s.Channel(m.ChannelID)
-		if err == nil && channel.IsThread() {
-			return
-		}
-
-		go handleUserChannelMessage(s, m)
-		return // EXCLUSIVE: Do not trigger general handlers or emit events for this channel
 	}
 
 	if err := sendEventData(event); err != nil {

@@ -25,16 +25,17 @@ const (
 
 // GenericMessagingEvent contains common fields for all messaging-related events
 type GenericMessagingEvent struct {
-	Type        EventType `json:"type"`
-	Source      string    `json:"source"` // e.g., "discord", "slack"
-	UserID      string    `json:"user_id"`
-	UserName    string    `json:"user_name"`
-	UserLevel   string    `json:"user_level"`
-	ChannelID   string    `json:"channel_id"`
-	ChannelName string    `json:"channel_name"`
-	ServerID    string    `json:"server_id"`
-	ServerName  string    `json:"server_name,omitempty"`
-	Timestamp   time.Time `json:"timestamp"`
+	Type            EventType `json:"type"`
+	Source          string    `json:"source"` // e.g., "discord", "slack"
+	UserID          string    `json:"user_id"`
+	UserName        string    `json:"user_name"`
+	UserLevel       string    `json:"user_level"`
+	ChannelID       string    `json:"channel_id"`
+	ChannelName     string    `json:"channel_name"`
+	ParentChannelID string    `json:"parent_channel_id,omitempty"`
+	ServerID        string    `json:"server_id"`
+	ServerName      string    `json:"server_name,omitempty"`
+	Timestamp       time.Time `json:"timestamp"`
 }
 
 // Attachment represents a file attached to a message
