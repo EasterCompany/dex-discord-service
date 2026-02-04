@@ -36,6 +36,7 @@ type DiscordOptions struct {
 	Token               string     `json:"token"`
 	ServerID            string     `json:"server_id"`
 	DebugChannelID      string     `json:"debug_channel_id"`
+	DexterChannelID     string     `json:"dexter_channel_id"`
 	MasterUser          string     `json:"master_user"`
 	DefaultVoiceChannel string     `json:"default_voice_channel"`
 	QuietMode           bool       `json:"quiet_mode"`

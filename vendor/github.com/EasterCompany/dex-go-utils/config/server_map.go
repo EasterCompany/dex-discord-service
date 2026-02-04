@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // ServerMapConfig represents the structure of server-map.json
@@ -61,9 +62,11 @@ func SaveServerMap(config *ServerMapConfig) error {
 
 // GetServerForHost finds the server configuration for a given host (IP or hostname).
 func (sm *ServerMapConfig) GetServerForHost(host string) (*Server, error) {
-	// 1. Direct key match
-	if server, ok := sm.Servers[host]; ok {
-		return &server, nil
+	// 1. Direct key match (Case-insensitive)
+	for name, server := range sm.Servers {
+		if strings.EqualFold(name, host) {
+			return &server, nil
+		}
 	}
 
 	// 2. IP match
@@ -74,4 +77,16 @@ func (sm *ServerMapConfig) GetServerForHost(host string) (*Server, error) {
 	}
 
 	return nil, fmt.Errorf("server config not found for host: %s", host)
+}
+
+// GetServerForService finds the server that handles a specific service.
+func (sm *ServerMapConfig) GetServerForService(serviceID string) (string, *Server) {
+	for name, srv := range sm.Servers {
+		for _, s := range srv.Services {
+			if s == serviceID {
+				return name, &srv
+			}
+		}
+	}
+	return "", nil
 }

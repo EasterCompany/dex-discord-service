@@ -38,8 +38,10 @@ var voiceRecorder *audio.VoiceRecorder
 var activeVoiceConnection *discordgo.VoiceConnection
 var voiceConnectionMutex sync.Mutex
 
+var dexterChannelID string
+
 // RunCoreLogic manages the Discord session and its event handlers.
-func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaultChannel, guildID string, roles config.RoleConfig, rc *redis.Client, port int) error {
+func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaultChannel, guildID string, roles config.RoleConfig, dChannelID string, rc *redis.Client, port int) error {
 	eventServiceURL = serviceURL
 	ttsServiceURL = ttsURL
 	sttServiceURL = sttURL
@@ -48,6 +50,7 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaul
 	defaultVoiceChannelID = defaultChannel
 	serverID = guildID
 	roleConfig = roles
+	dexterChannelID = dChannelID
 	redisClient = rc
 
 	var dg *discordgo.Session // Declare dg early so callbacks capture it
@@ -825,6 +828,103 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 
 	if err := sendEventData(event); err != nil {
 		log.Printf("Error sending message event: %v", err)
+	}
+
+	// SPECIAL: Dexter Channel Live Stream (USER Instance)
+	if m.ChannelID == dexterChannelID {
+		go handleUserChannelMessage(s, m)
+	}
+}
+
+var userMessageQueue []struct {
+	Session *discordgo.Session
+	Message *discordgo.MessageCreate
+}
+var userMessageMutex sync.Mutex
+var userAIBusy bool
+
+func handleUserChannelMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+	userMessageMutex.Lock()
+	userMessageQueue = append(userMessageQueue, struct {
+		Session *discordgo.Session
+		Message *discordgo.MessageCreate
+	}{s, m})
+	if userAIBusy {
+		userMessageMutex.Unlock()
+		return
+	}
+	userAIBusy = true
+	userMessageMutex.Unlock()
+
+	processUserQueue()
+}
+
+func processUserQueue() {
+	for {
+		userMessageMutex.Lock()
+		if len(userMessageQueue) == 0 {
+			userAIBusy = false
+			userMessageMutex.Unlock()
+			return
+		}
+		item := userMessageQueue[0]
+		userMessageQueue = userMessageQueue[1:]
+		userMessageMutex.Unlock()
+
+		s := item.Session
+		m := item.Message
+
+		// 1. Start Stream (Loading Indicator)
+		initialMsg := "<a:typing:1449387367315275786> *Thinking...*"
+		streamMsg, err := s.ChannelMessageSend(m.ChannelID, initialMsg)
+		if err != nil {
+			log.Printf("Failed to start user stream: %v", err)
+			continue
+		}
+
+		// 2. Call Construct Service (USER Instance)
+		constructSvc, err := utils.ResolveService("dex-fabricator-construct-model-service")
+		if err != nil {
+			_, _ = s.ChannelMessageEdit(m.ChannelID, streamMsg.ID, "✕ Error: Construct service unavailable.")
+			continue
+		}
+
+		reqBody, _ := json.Marshal(map[string]interface{}{
+			"prompt":      m.Content,
+			"instance_id": "user",
+		})
+
+		resp, err := http.Post(fmt.Sprintf("http://%s:%s/run", constructSvc.Domain, constructSvc.Port), "application/json", bytes.NewBuffer(reqBody))
+		if err != nil {
+			_, _ = s.ChannelMessageEdit(m.ChannelID, streamMsg.ID, "✕ Error: Failed to trigger AI interaction.")
+			continue
+		}
+		defer func() { _ = resp.Body.Close() }()
+
+		var result struct {
+			Response string `json:"response"`
+			Success  bool   `json:"success"`
+		}
+		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+			_, _ = s.ChannelMessageEdit(m.ChannelID, streamMsg.ID, "✕ Error: Failed to parse AI response.")
+			continue
+		}
+
+		// 3. Finalize Output
+		finalOutput := result.Response
+		if !result.Success {
+			finalOutput = "✕ **Operation Failed**\n\n" + finalOutput
+		}
+
+		// Split into multiple messages if too long
+		chunks := utils.ChunkString(finalOutput, 1950)
+		for i, chunk := range chunks {
+			if i == 0 {
+				_, _ = s.ChannelMessageEdit(m.ChannelID, streamMsg.ID, chunk)
+			} else {
+				_, _ = s.ChannelMessageSend(m.ChannelID, chunk)
+			}
+		}
 	}
 }
 

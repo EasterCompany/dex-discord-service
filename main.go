@@ -120,7 +120,7 @@ func main() {
 	go func() {
 		log.Println("Core Logic: Starting...")
 		endpoints.SetUserConfig(options.Discord.Roles)
-		if err := RunCoreLogic(ctx, discordToken, eventServiceURL, ttsServiceURL, sttServiceURL, options.Discord.DefaultVoiceChannel, options.Discord.ServerID, options.Discord.Roles, redisClient, port); err != nil {
+		if err := RunCoreLogic(ctx, discordToken, eventServiceURL, ttsServiceURL, sttServiceURL, options.Discord.DefaultVoiceChannel, options.Discord.ServerID, options.Discord.Roles, options.Discord.DexterChannelID, redisClient, port); err != nil {
 			log.Printf("Core Logic Error: %v", err)
 			// Trigger shutdown if core logic fails
 			cancel()
