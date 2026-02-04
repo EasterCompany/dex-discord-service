@@ -49,6 +49,10 @@ func FetchMissedMessages(dg *discordgo.Session, eventServiceURL string, serverID
 
 		messages, err := dg.ChannelMessages(channelID, 100, "", snowflake, "")
 		if err != nil {
+			// Quietly skip if the channel was deleted (very common with threads)
+			if strings.Contains(err.Error(), "404 Not Found") || strings.Contains(err.Error(), "Unknown Channel") {
+				continue
+			}
 			log.Printf("Skipping channel %s: %v", channelID, err)
 			continue
 		}
