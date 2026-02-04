@@ -38,10 +38,10 @@ var voiceRecorder *audio.VoiceRecorder
 var activeVoiceConnection *discordgo.VoiceConnection
 var voiceConnectionMutex sync.Mutex
 
-var dexterChannelID string
+var buildChannelID string
 
 // RunCoreLogic manages the Discord session and its event handlers.
-func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaultChannel, guildID string, roles config.RoleConfig, dChannelID string, rc *redis.Client, port int) error {
+func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaultChannel, guildID string, roles config.RoleConfig, bChannelID string, rc *redis.Client, port int) error {
 	eventServiceURL = serviceURL
 	ttsServiceURL = ttsURL
 	sttServiceURL = sttURL
@@ -50,7 +50,7 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaul
 	defaultVoiceChannelID = defaultChannel
 	serverID = guildID
 	roleConfig = roles
-	dexterChannelID = dChannelID
+	buildChannelID = bChannelID
 	redisClient = rc
 
 	var dg *discordgo.Session // Declare dg early so callbacks capture it
@@ -158,6 +158,9 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaul
 			time.Sleep(15 * time.Second) // Wait before retrying
 			continue
 		}
+
+		// Perform startup cleanup and recovery for Build channel
+		go cleanupAndRecoverBuildChannel(dg)
 
 		log.Println("Core Logic: Announcing connection to event service...")
 		connectionEvent := utils.BotStatusUpdateEvent{
@@ -826,29 +829,49 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 		}
 	}
 
-	if err := sendEventData(event); err != nil {
-		log.Printf("Error sending message event: %v", err)
+	if m.ChannelID == buildChannelID {
+		// Ignore if already in a thread (only top-level messages create threads)
+		channel, err := s.Channel(m.ChannelID)
+		if err == nil && channel.IsThread() {
+			return
+		}
+
+		go handleUserChannelMessage(s, m)
+		return // EXCLUSIVE: Do not trigger general handlers or emit events for this channel
 	}
 
-	// SPECIAL: Dexter Channel Live Stream (USER Instance)
-	if m.ChannelID == dexterChannelID {
-		go handleUserChannelMessage(s, m)
+	if err := sendEventData(event); err != nil {
+		log.Printf("Error sending message event: %v", err)
 	}
 }
 
 var userMessageQueue []struct {
-	Session *discordgo.Session
-	Message *discordgo.MessageCreate
+	Session  *discordgo.Session
+	Message  *discordgo.MessageCreate
+	ThreadID string
 }
 var userMessageMutex sync.Mutex
 var userAIBusy bool
 
 func handleUserChannelMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
+	// 1. Create Thread for this prompt (First 25 chars)
+	threadName := m.Content
+	if len(threadName) > 25 {
+		threadName = threadName[:22] + "..."
+	}
+
+	thread, err := s.MessageThreadStart(m.ChannelID, m.ID, threadName, 1440) // 24h auto-archive
+	if err != nil {
+		log.Printf("Failed to create thread for Build prompt: %v", err)
+		return
+	}
+
 	userMessageMutex.Lock()
 	userMessageQueue = append(userMessageQueue, struct {
-		Session *discordgo.Session
-		Message *discordgo.MessageCreate
-	}{s, m})
+		Session  *discordgo.Session
+		Message  *discordgo.MessageCreate
+		ThreadID string
+	}{s, m, thread.ID})
 	if userAIBusy {
 		userMessageMutex.Unlock()
 		return
@@ -873,10 +896,11 @@ func processUserQueue() {
 
 		s := item.Session
 		m := item.Message
+		threadID := item.ThreadID
 
-		// 1. Start Stream (Loading Indicator)
-		initialMsg := "<a:typing:1449387367315275786> *Thinking...*"
-		streamMsg, err := s.ChannelMessageSend(m.ChannelID, initialMsg)
+		// 1. Start Stream (Loading Indicator) in the thread
+		initialMsg := "<a:typing:1449387367315275786> *Initiating construction mission...*"
+		streamMsg, err := s.ChannelMessageSend(threadID, initialMsg)
 		if err != nil {
 			log.Printf("Failed to start user stream: %v", err)
 			continue
@@ -885,18 +909,23 @@ func processUserQueue() {
 		// 2. Call Construct Service (USER Instance)
 		constructSvc, err := utils.ResolveService("dex-fabricator-construct-model-service")
 		if err != nil {
-			_, _ = s.ChannelMessageEdit(m.ChannelID, streamMsg.ID, "✕ Error: Construct service unavailable.")
+			_, _ = s.ChannelMessageEdit(threadID, streamMsg.ID, "✕ Error: Construct service unavailable.")
+			// Ensure thread is closed even on error
+			closeThread(s, threadID)
 			continue
 		}
 
 		reqBody, _ := json.Marshal(map[string]interface{}{
 			"prompt":      m.Content,
 			"instance_id": "user",
+			"model":       "gemini-3-flash-preview",
+			"thread_id":   threadID,
 		})
 
 		resp, err := http.Post(fmt.Sprintf("http://%s:%s/run", constructSvc.Domain, constructSvc.Port), "application/json", bytes.NewBuffer(reqBody))
 		if err != nil {
-			_, _ = s.ChannelMessageEdit(m.ChannelID, streamMsg.ID, "✕ Error: Failed to trigger AI interaction.")
+			_, _ = s.ChannelMessageEdit(threadID, streamMsg.ID, "✕ Error: Failed to trigger AI interaction.")
+			closeThread(s, threadID)
 			continue
 		}
 		defer func() { _ = resp.Body.Close() }()
@@ -906,7 +935,8 @@ func processUserQueue() {
 			Success  bool   `json:"success"`
 		}
 		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			_, _ = s.ChannelMessageEdit(m.ChannelID, streamMsg.ID, "✕ Error: Failed to parse AI response.")
+			_, _ = s.ChannelMessageEdit(threadID, streamMsg.ID, "✕ Error: Failed to parse AI response.")
+			closeThread(s, threadID)
 			continue
 		}
 
@@ -920,11 +950,70 @@ func processUserQueue() {
 		chunks := utils.ChunkString(finalOutput, 1950)
 		for i, chunk := range chunks {
 			if i == 0 {
-				_, _ = s.ChannelMessageEdit(m.ChannelID, streamMsg.ID, chunk)
+				_, _ = s.ChannelMessageEdit(threadID, streamMsg.ID, chunk)
 			} else {
-				_, _ = s.ChannelMessageSend(m.ChannelID, chunk)
+				_, _ = s.ChannelMessageSend(threadID, chunk)
 			}
 		}
+
+		// 4. Close and Lock Thread
+		closeThread(s, threadID)
+	}
+}
+
+func closeThread(s *discordgo.Session, threadID string) {
+	locked := true
+	archived := true
+	_, err := s.ChannelEdit(threadID, &discordgo.ChannelEdit{
+		Locked:   &locked,
+		Archived: &archived,
+	})
+	if err != nil {
+		log.Printf("Failed to close/lock thread %s: %v", threadID, err)
+	}
+}
+
+func cleanupAndRecoverBuildChannel(s *discordgo.Session) {
+	if buildChannelID == "" {
+		return
+	}
+
+	log.Println("Build Channel: Performing startup hygiene and recovery...")
+
+	// 1. Fetch recent messages
+	messages, err := s.ChannelMessages(buildChannelID, 100, "", "", "")
+	if err != nil {
+		log.Printf("Hygiene Error: Failed to fetch messages: %v", err)
+		return
+	}
+
+	now := time.Now()
+	cutoff := now.Add(-3 * time.Hour)
+
+	var toProcess []*discordgo.Message
+
+	for i := len(messages) - 1; i >= 0; i-- {
+		m := messages[i]
+
+		// 2. Cleanup old messages
+		if m.Timestamp.Before(cutoff) {
+			log.Printf("Hygiene: Deleting old message/thread reference: %s", m.ID)
+			_ = s.ChannelMessageDelete(buildChannelID, m.ID)
+			continue
+		}
+
+		// 3. Recovery: Find unprocessed user prompts
+		// Unprocessed = From human user AND has no thread
+		if m.Author.ID != s.State.User.ID && m.Thread == nil {
+			log.Printf("Recovery: Found unprocessed prompt: %s", m.ID)
+			toProcess = append(toProcess, m)
+		}
+	}
+
+	// 4. Sequential Re-processing (Oldest to newest)
+	for _, m := range toProcess {
+		mc := &discordgo.MessageCreate{Message: m}
+		handleUserChannelMessage(s, mc)
 	}
 }
 
