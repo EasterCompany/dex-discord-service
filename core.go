@@ -39,9 +39,10 @@ var activeVoiceConnection *discordgo.VoiceConnection
 var voiceConnectionMutex sync.Mutex
 
 var buildChannelID string
+var debugChannelID string
 
 // RunCoreLogic manages the Discord session and its event handlers.
-func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaultChannel, guildID string, roles config.RoleConfig, bChannelID string, rc *redis.Client, port int) error {
+func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaultChannel, guildID string, roles config.RoleConfig, bChannelID, dChannelID string, rc *redis.Client, port int) error {
 	eventServiceURL = serviceURL
 	ttsServiceURL = ttsURL
 	sttServiceURL = sttURL
@@ -51,6 +52,7 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaul
 	serverID = guildID
 	roleConfig = roles
 	buildChannelID = bChannelID
+	debugChannelID = dChannelID
 	redisClient = rc
 
 	var dg *discordgo.Session // Declare dg early so callbacks capture it
@@ -1402,7 +1404,9 @@ func enforceRoles(s *discordgo.Session, guildID, userID string, currentRoles []s
 
 // postStartupDebugInfo Gathers and posts network connectivity information to the debug channel.
 func postStartupDebugInfo(s *discordgo.Session, port int) {
-	debugChannelID := "1423328325778149438"
+	if debugChannelID == "" {
+		return
+	}
 
 	// Gather comprehensive status via CLI
 	dexPath := os.ExpandEnv("$HOME/Dexter/bin/dex")

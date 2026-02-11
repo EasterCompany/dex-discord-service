@@ -1,18 +1,24 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"github.com/EasterCompany/dex-go-utils/network"
 )
 
 // ServiceMapConfig represents the structure of service-map.json
 type ServiceMapConfig struct {
-	ServiceTypes []string                  `json:"service_types"`
+	ServiceTypes []ServiceType             `json:"service_types"`
 	Services     map[string][]ServiceEntry `json:"services"`
+}
+
+// ServiceType defines a category of services
+type ServiceType struct {
+	Type        string `json:"type"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	MinPort     int    `json:"min_port"`
+	MaxPort     int    `json:"max_port"`
 }
 
 // ServiceEntry represents a single service in the service map
@@ -38,12 +44,12 @@ func (s *ServiceEntry) IsBuildable() bool {
 	return s.Type == "cs" || s.Type == "co"
 }
 
-// GetInternalPort returns the internal_port or a fallback value if not set.
-func (s *ServiceEntry) GetInternalPort(fallback string) string {
+// GetInternalPort returns the internal port or a default if not set.
+func (s *ServiceEntry) GetInternalPort(defaultPort string) string {
 	if s.InternalPort != "" {
 		return s.InternalPort
 	}
-	return fallback
+	return defaultPort
 }
 
 // ServiceCredentials holds connection credentials for services like Redis
@@ -55,23 +61,12 @@ type ServiceCredentials struct {
 
 // LoadServiceMap loads the service map from the standard Dexter config location
 func LoadServiceMap() (*ServiceMapConfig, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("could not get home directory: %w", err)
-	}
+	return LoadConfig[ServiceMapConfig]("service-map.json")
+}
 
-	path := filepath.Join(home, "Dexter", "config", "service-map.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("could not read service-map.json at %s: %w", path, err)
-	}
-
-	var config ServiceMapConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("could not unmarshal service-map.json: %w", err)
-	}
-
-	return &config, nil
+// SaveServiceMap saves the service map to the standard Dexter config location
+func SaveServiceMap(config *ServiceMapConfig) error {
+	return SaveConfig("service-map.json", config)
 }
 
 // GetServiceURL finds a service by ID and category and returns its full HTTP URL
@@ -111,4 +106,77 @@ func (c *ServiceMapConfig) GetSanitized() map[string]interface{} {
 	sanitized["service_types"] = c.ServiceTypes
 	sanitized["services"] = c.Services
 	return sanitized
+}
+
+// MergeDefaults adds missing services and types from the default config.
+// Returns true if any changes were made.
+func (c *ServiceMapConfig) MergeDefaults(defaults *ServiceMapConfig) bool {
+	changed := false
+
+	// Merge ServiceTypes
+	if len(c.ServiceTypes) == 0 && len(defaults.ServiceTypes) > 0 {
+		c.ServiceTypes = defaults.ServiceTypes
+		changed = true
+	} else {
+		for _, defType := range defaults.ServiceTypes {
+			found := false
+			for _, cType := range c.ServiceTypes {
+				if cType.Type == defType.Type {
+					found = true
+					break
+				}
+			}
+			if !found {
+				c.ServiceTypes = append(c.ServiceTypes, defType)
+				changed = true
+			}
+		}
+	}
+
+	// Merge Services
+	if c.Services == nil {
+		c.Services = make(map[string][]ServiceEntry)
+		changed = true
+	}
+
+	for category, defServices := range defaults.Services {
+		if _, exists := c.Services[category]; !exists {
+			c.Services[category] = defServices
+			changed = true
+			continue
+		}
+
+		for _, defSvc := range defServices {
+			found := false
+			for i, cSvc := range c.Services[category] {
+				if cSvc.ID == defSvc.ID {
+					found = true
+					// Heal missing fields
+					if cSvc.ShortName == "" && defSvc.ShortName != "" {
+						c.Services[category][i].ShortName = defSvc.ShortName
+						changed = true
+					}
+					if cSvc.Type == "" && defSvc.Type != "" {
+						c.Services[category][i].Type = defSvc.Type
+						changed = true
+					}
+					if cSvc.Repo == "" && defSvc.Repo != "" {
+						c.Services[category][i].Repo = defSvc.Repo
+						changed = true
+					}
+					if cSvc.Source == "" && defSvc.Source != "" {
+						c.Services[category][i].Source = defSvc.Source
+						changed = true
+					}
+					break
+				}
+			}
+			if !found {
+				c.Services[category] = append(c.Services[category], defSvc)
+				changed = true
+			}
+		}
+	}
+
+	return changed
 }

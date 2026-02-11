@@ -56,6 +56,27 @@ func LoadOptions() (*OptionsConfig, error) {
 	return sharedConfig.LoadOptions()
 }
 
+// GetDiscordOptions extracts and parses Discord-specific options from the global options.
+func GetDiscordOptions(options *OptionsConfig) (DiscordOptions, error) {
+	svcOpts := options.GetServiceOptions("dex-discord-service")
+	if svcOpts == nil {
+		return DiscordOptions{}, fmt.Errorf("no options found for dex-discord-service")
+	}
+
+	// Re-marshal and unmarshal to convert map to struct
+	data, err := json.Marshal(svcOpts)
+	if err != nil {
+		return DiscordOptions{}, err
+	}
+
+	var discordOpts DiscordOptions
+	if err := json.Unmarshal(data, &discordOpts); err != nil {
+		return DiscordOptions{}, err
+	}
+
+	return discordOpts, nil
+}
+
 // LoadSystem loads the system.json file.
 func LoadSystem() (*SystemConfig, error) {
 	var cfg SystemConfig

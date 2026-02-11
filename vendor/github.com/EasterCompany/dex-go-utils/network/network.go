@@ -2,6 +2,7 @@ package network
 
 import (
 	"net"
+	"os"
 )
 
 // GetLocalIPs returns a map of all IP addresses associated with the local machine.
@@ -24,9 +25,21 @@ func GetLocalIPs() map[string]bool {
 
 // IsAddressLocal checks if the given domain/IP is the local machine.
 func IsAddressLocal(domain string) bool {
-	if domain == "" || domain == "127.0.0.1" || domain == "localhost" || domain == "::1" {
+	if domain == "127.0.0.1" || domain == "localhost" || domain == "::1" {
 		return true
 	}
+
+	if domain == "" {
+		return false
+	}
+
+	// Check against hostname
+	if hostname, err := os.Hostname(); err == nil {
+		if domain == hostname {
+			return true
+		}
+	}
+
 	localIPs := GetLocalIPs()
 	return localIPs[domain]
 }

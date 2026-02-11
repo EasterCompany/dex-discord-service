@@ -80,13 +80,18 @@ func main() {
 	}
 
 	// Load options.json to get Discord configuration
-	options, err := config.LoadOptions()
+	allOptions, err := config.LoadOptions()
 	if err != nil {
 		log.Fatalf("FATAL: Could not load options.json: %v", err)
 	}
 
+	discordOpts, err := config.GetDiscordOptions(allOptions)
+	if err != nil {
+		log.Fatalf("FATAL: Could not parse Discord options: %v", err)
+	}
+
 	// Extract Discord token from options
-	discordToken := options.Discord.Token
+	discordToken := discordOpts.Token
 	if discordToken == "" {
 		log.Fatalf("FATAL: Discord token not found or invalid in options.json")
 	}
@@ -119,8 +124,8 @@ func main() {
 	// Start the core event logic in a goroutine
 	go func() {
 		log.Println("Core Logic: Starting...")
-		endpoints.SetUserConfig(options.Discord.Roles)
-		if err := RunCoreLogic(ctx, discordToken, eventServiceURL, ttsServiceURL, sttServiceURL, options.Discord.DefaultVoiceChannel, options.Discord.ServerID, options.Discord.Roles, options.Discord.BuildChannelID, redisClient, port); err != nil {
+		endpoints.SetUserConfig(discordOpts.Roles)
+		if err := RunCoreLogic(ctx, discordToken, eventServiceURL, ttsServiceURL, sttServiceURL, discordOpts.DefaultVoiceChannel, discordOpts.ServerID, discordOpts.Roles, discordOpts.BuildChannelID, discordOpts.DebugChannelID, redisClient, port); err != nil {
 			log.Printf("Core Logic Error: %v", err)
 			// Trigger shutdown if core logic fails
 			cancel()

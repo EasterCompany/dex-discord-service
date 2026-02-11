@@ -1,12 +1,5 @@
 package config
 
-import (
-	"encoding/json"
-	"fmt"
-	"os"
-	"path/filepath"
-)
-
 // SystemConfig represents the structure of system.json
 
 type SystemConfig struct {
@@ -27,23 +20,7 @@ type SystemConfig struct {
 
 // LoadSystem loads the system configuration from the standard Dexter config location.
 func LoadSystem() (*SystemConfig, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return nil, fmt.Errorf("could not get home directory: %w", err)
-	}
-
-	path := filepath.Join(home, "Dexter", "config", "system.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("could not read system.json at %s: %w", path, err)
-	}
-
-	var config SystemConfig
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("could not unmarshal system.json: %w", err)
-	}
-
-	return &config, nil
+	return LoadConfig[SystemConfig]("system.json")
 }
 
 // CPUInfo holds details about a CPU
@@ -74,11 +51,12 @@ type StorageInfo struct {
 
 // PackageInfo holds details about a system package
 type PackageInfo struct {
-	Name           string `json:"name"`
-	Version        string `json:"version"`
-	Required       bool   `json:"required"`
-	MinVersion     string `json:"min_version,omitempty"`
-	Installed      bool   `json:"installed"`
-	InstallCommand string `json:"install_command"`
-	UpgradeCommand string `json:"upgrade_command,omitempty"`
+	Name           string   `json:"name"`
+	Version        string   `json:"version"`
+	Required       bool     `json:"required"`
+	Categories     []string `json:"categories,omitempty"`
+	MinVersion     string   `json:"min_version,omitempty"`
+	Installed      bool     `json:"installed"`
+	InstallCommand string   `json:"install_command"`
+	UpgradeCommand string   `json:"upgrade_command,omitempty"`
 }
