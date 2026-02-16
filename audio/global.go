@@ -3,8 +3,8 @@ package audio
 import "sync"
 
 var (
-	globalRecorder   *VoiceRecorder
-	recorderMu       sync.Mutex
+	globalRecorder *VoiceRecorder
+	recorderMu     sync.Mutex
 )
 
 // GetGlobalRecorder returns the singleton voice recorder instance.

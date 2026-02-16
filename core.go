@@ -1455,3 +1455,48 @@ func subscribeToDarwinResponses(s *discordgo.Session) {
 		}
 	}
 }
+
+// cleanupAndRecoverBuildChannel ensures the Build channel is clean of abandoned threads on boot.
+func cleanupAndRecoverBuildChannel(s *discordgo.Session) {
+	if buildChannelID == "" || serverID == "" {
+		return
+	}
+
+	log.Println("Build Channel: Performing startup cleanup...")
+
+	// 1. Fetch all active threads in the guild
+	threads, err := s.GuildThreadsActive(serverID)
+	if err != nil {
+		log.Printf("Build Channel: Error fetching active threads: %v", err)
+		return
+	}
+
+	for _, thread := range threads.Threads {
+		// Only target threads in the Build channel
+		if thread.ParentID != buildChannelID {
+			continue
+		}
+
+		// Check if Dexter is the only one in the thread
+		members, err := s.ThreadMembers(thread.ID, 100, false, "")
+		if err != nil {
+			continue
+		}
+
+		isAlone := true
+		for _, m := range members {
+			if m.UserID != s.State.User.ID {
+				isAlone = false
+				break
+			}
+		}
+
+		if isAlone {
+			log.Printf("Build Channel: Recovering abandoned thread %s (%s)...", thread.Name, thread.ID)
+			// Delete abandoned threads
+			if _, err := s.ChannelDelete(thread.ID); err != nil {
+				log.Printf("Build Channel: Failed to cleanup thread %s: %v", thread.ID, err)
+			}
+		}
+	}
+}

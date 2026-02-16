@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"os"
@@ -70,10 +69,10 @@ func summarizeIfNeeded(channelID string, history []interface{}) {
 				"content": result.Response,
 			},
 		}
-		
+
 		contextMu.Lock()
 		defer contextMu.Unlock()
-		
+
 		home, _ := os.UserHomeDir()
 		path := filepath.Join(home, "Dexter", "data", "discord", "channels", channelID+".json")
 		data, _ := json.MarshalIndent(newHistory, "", "  ")
@@ -94,7 +93,7 @@ func AppendToChannelContext(channelID string, entry interface{}) error {
 	}
 
 	path := filepath.Join(dir, channelID+".json")
-	
+
 	var history []interface{}
 	if _, err := os.Stat(path); err == nil {
 		data, err := os.ReadFile(path)

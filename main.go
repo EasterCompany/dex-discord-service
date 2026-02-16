@@ -17,6 +17,7 @@ import (
 	"github.com/EasterCompany/dex-discord-service/endpoints"
 	"github.com/EasterCompany/dex-discord-service/middleware"
 	"github.com/EasterCompany/dex-discord-service/utils"
+	"github.com/EasterCompany/dex-go-utils/network"
 )
 
 const ServiceName = "dex-discord-service"
@@ -202,8 +203,12 @@ func main() {
 	// /audio/play_music endpoint is protected by auth middleware (for playing YouTube links)
 	mux.HandleFunc("/audio/play_music", middleware.ServiceAuthMiddleware(endpoints.PlayMusicHandler))
 
+	// Determine Binding Address
+	bindAddr := network.GetBestBindingAddress()
+	addr := fmt.Sprintf("%s:%d", bindAddr, port)
+
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%d", port),
+		Addr:         addr,
 		Handler:      middleware.CorsMiddleware(mux),
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 15 * time.Second,
@@ -212,7 +217,7 @@ func main() {
 
 	// Start HTTP server in a goroutine
 	go func() {
-		fmt.Printf("Starting %s on :%d\n", ServiceName, port)
+		fmt.Printf("Starting %s on %s\n", ServiceName, addr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("HTTP server crashed: %v", err)
 		}
