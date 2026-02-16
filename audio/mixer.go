@@ -218,6 +218,7 @@ func (m *AudioMixer) runLoop() {
 
 			if hasAudio {
 				if !isSpeaking {
+					log.Printf("AudioMixer: Starting playback (Music=%v, Voice=%v)", hasMusic, hasVoice)
 					if err := m.vc.Speaking(true); err != nil {
 						log.Printf("Mixer Speaking(true) error: %v", err)
 					}
@@ -285,6 +286,7 @@ func (m *AudioMixer) runLoop() {
 					}
 
 					if silenceFrames > 5 { // 100ms of silence
+						log.Printf("AudioMixer: Playback complete.")
 						if err := m.vc.Speaking(false); err != nil {
 							log.Printf("Mixer Speaking(false) error: %v", err)
 						}

@@ -57,12 +57,10 @@ func AudioHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Get the voice recorder instance
-	// NOTE: This assumes audio package has a singleton or we fix dependency injection later.
-	// For now, we assume this handler is for debugging recorded audio and might be flaky without DI fix.
-	voiceRecorder, err := audio.NewVoiceRecorder(context.Background(), nil, nil)
-	if err != nil {
-		log.Printf("Error creating voice recorder: %v", err)
+	// Get the global voice recorder instance
+	voiceRecorder := audio.GetGlobalRecorder()
+	if voiceRecorder == nil {
+		log.Printf("Error: global voice recorder not initialized")
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}

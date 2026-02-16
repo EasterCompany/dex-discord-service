@@ -233,15 +233,18 @@ func PostHandler(w http.ResponseWriter, r *http.Request) {
 
 		body, _ := json.Marshal(request)
 		resp, err := http.Post(eventServiceURL+"/events", "application/json", bytes.NewBuffer(body))
-		if err != nil {
+		if err == nil {
+			defer func() {
+				if err := resp.Body.Close(); err != nil {
+					log.Printf("Error closing event service response body: %v", err)
+				}
+			}()
+		} else {
 			log.Printf("Warning: Failed to emit event: %v", err)
-			return
 		}
-		defer func() {
-			if err := resp.Body.Close(); err != nil {
-				log.Printf("Error closing event service response body: %v", err)
-			}
-		}()
+
+		// Local Context Storage
+		_ = utils.AppendToChannelContext(req.ChannelID, eventData)
 	}()
 
 	// Return success response

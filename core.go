@@ -106,6 +106,7 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaul
 		utils.SetHealthStatus("ERROR", "Failed to create voice recorder")
 		return err
 	}
+	audio.SetGlobalRecorder(voiceRecorder)
 
 	dg, err = discordgo.New("Bot " + token)
 	if err != nil {
@@ -144,10 +145,8 @@ func RunCoreLogic(ctx context.Context, token, serviceURL, ttsURL, sttURL, defaul
 		utils.IncrementReconnects()
 		utils.SetHealthStatus("RECONNECTING", "Discord connection lost, reconnecting...")
 	})
-	dg.AddHandler(func(s *discordgo.Session, r *discordgo.Resumed) {
-		log.Printf("Discord connection resumed")
-		utils.SetHealthStatus("OK", "Service is running and connected to Discord")
-	})
+	// Start Subscriber for Darwin responses
+	go subscribeToDarwinResponses(dg)
 
 	for {
 		select {
@@ -599,6 +598,9 @@ func playGreeting(s *discordgo.Session, vc *discordgo.VoiceConnection) {
 	if err := sendEventData(voiceEvent); err != nil {
 		log.Printf("Error sending greeting event: %v", err)
 	}
+
+	// Local Context Storage
+	_ = utils.AppendToChannelContext(vc.ChannelID, voiceEvent)
 }
 
 // fakeResponseWriter to satisfy http.ResponseWriter interface
@@ -720,6 +722,12 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	}
 	utils.IncrementMessagesReceived()
 
+	// 0. Command Parsing
+	if strings.HasPrefix(m.Content, "/") {
+		handleDiscordCommand(s, m)
+		return
+	}
+
 	// 0. Fetch Channel Info Early
 	channel, err := s.Channel(m.ChannelID)
 	if err != nil {
@@ -747,8 +755,20 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 			return
 		}
 
-		go handleUserChannelMessage(s, m)
-		return // EXCLUSIVE: Do not trigger general handlers or emit events for this channel
+		// Emit Darwin Event
+		darwinEvent := map[string]interface{}{
+			"type":       "system.darwin.build_channel_input",
+			"content":    m.Content,
+			"message_id": m.ID,
+			"channel_id": m.ChannelID,
+			"user_id":    m.Author.ID,
+			"user_name":  m.Author.Username,
+			"timestamp":  time.Now().Unix(),
+		}
+		if err := sendEventData(darwinEvent); err != nil {
+			log.Printf("Error sending Darwin build channel input event: %v", err)
+		}
+		return
 	}
 
 	// Pre-process content to replace mentions with display names
@@ -860,177 +880,30 @@ func messageCreate(s *discordgo.Session, m *discordgo.MessageCreate) {
 	if err := sendEventData(event); err != nil {
 		log.Printf("Error sending message event: %v", err)
 	}
+
+	// Local Context Storage
+	_ = utils.AppendToChannelContext(m.ChannelID, event)
 }
 
-var userMessageQueue []struct {
-	Session  *discordgo.Session
-	Message  *discordgo.MessageCreate
-	ThreadID string
-}
-var userMessageMutex sync.Mutex
-var userAIBusy bool
-
-func handleUserChannelMessage(s *discordgo.Session, m *discordgo.MessageCreate) {
-	// 1. Create Thread for this prompt (First 25 chars)
-	threadName := m.Content
-	if len(threadName) > 25 {
-		threadName = threadName[:22] + "..."
-	}
-
-	thread, err := s.MessageThreadStart(m.ChannelID, m.ID, threadName, 1440) // 24h auto-archive
-	if err != nil {
-		log.Printf("Failed to create thread for Build prompt: %v", err)
+func handleDiscordCommand(s *discordgo.Session, m *discordgo.MessageCreate) {
+	cmd := strings.TrimPrefix(m.Content, "/")
+	parts := strings.Fields(cmd)
+	if len(parts) == 0 {
 		return
 	}
 
-	userMessageMutex.Lock()
-	userMessageQueue = append(userMessageQueue, struct {
-		Session  *discordgo.Session
-		Message  *discordgo.MessageCreate
-		ThreadID string
-	}{s, m, thread.ID})
-	if userAIBusy {
-		userMessageMutex.Unlock()
-		return
-	}
-	userAIBusy = true
-	userMessageMutex.Unlock()
+	commandName := strings.ToLower(parts[0])
+	ctx := context.Background()
 
-	processUserQueue()
-}
-
-func processUserQueue() {
-	for {
-		userMessageMutex.Lock()
-		if len(userMessageQueue) == 0 {
-			userAIBusy = false
-			userMessageMutex.Unlock()
-			return
-		}
-		item := userMessageQueue[0]
-		userMessageQueue = userMessageQueue[1:]
-		userMessageMutex.Unlock()
-
-		s := item.Session
-		m := item.Message
-		threadID := item.ThreadID
-
-		// 1. Start Stream (Loading Indicator) in the thread
-		initialMsg := "<a:typing:1449387367315275786> *Initiating construction mission...*"
-		streamMsg, err := s.ChannelMessageSend(threadID, initialMsg)
-		if err != nil {
-			log.Printf("Failed to start user stream: %v", err)
-			continue
-		}
-
-		// 2. Call Construct Service (USER Instance)
-		constructSvc, err := utils.ResolveService("dex-fabricator-construct-model-service")
-		if err != nil {
-			_, _ = s.ChannelMessageEdit(threadID, streamMsg.ID, "✕ Error: Construct service unavailable.")
-			// Ensure thread is closed even on error
-			closeThread(s, threadID)
-			continue
-		}
-
-		reqBody, _ := json.Marshal(map[string]interface{}{
-			"prompt":      m.Content,
-			"instance_id": "user",
-			"model":       "gemini-3-flash-preview",
-			"thread_id":   threadID,
-		})
-
-		resp, err := http.Post(fmt.Sprintf("http://%s:%s/run", constructSvc.Domain, constructSvc.Port), "application/json", bytes.NewBuffer(reqBody))
-		if err != nil {
-			_, _ = s.ChannelMessageEdit(threadID, streamMsg.ID, "✕ Error: Failed to trigger AI interaction.")
-			closeThread(s, threadID)
-			continue
-		}
-		defer func() { _ = resp.Body.Close() }()
-
-		var result struct {
-			Response string `json:"response"`
-			Success  bool   `json:"success"`
-		}
-		if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-			_, _ = s.ChannelMessageEdit(threadID, streamMsg.ID, "✕ Error: Failed to parse AI response.")
-			closeThread(s, threadID)
-			continue
-		}
-
-		// 3. Finalize Output
-		finalOutput := result.Response
-		if !result.Success {
-			finalOutput = "✕ **Operation Failed**\n\n" + finalOutput
-		}
-
-		// Split into multiple messages if too long
-		chunks := utils.ChunkString(finalOutput, 1950)
-		for i, chunk := range chunks {
-			if i == 0 {
-				_, _ = s.ChannelMessageEdit(threadID, streamMsg.ID, chunk)
-			} else {
-				_, _ = s.ChannelMessageSend(threadID, chunk)
-			}
-		}
-
-		// 4. Close and Lock Thread
-		closeThread(s, threadID)
-	}
-}
-
-func closeThread(s *discordgo.Session, threadID string) {
-	locked := true
-	archived := true
-	_, err := s.ChannelEdit(threadID, &discordgo.ChannelEdit{
-		Locked:   &locked,
-		Archived: &archived,
-	})
-	if err != nil {
-		log.Printf("Failed to close/lock thread %s: %v", threadID, err)
-	}
-}
-
-func cleanupAndRecoverBuildChannel(s *discordgo.Session) {
-	if buildChannelID == "" {
-		return
-	}
-
-	log.Println("Build Channel: Performing startup hygiene and recovery...")
-
-	// 1. Fetch recent messages
-	messages, err := s.ChannelMessages(buildChannelID, 100, "", "", "")
-	if err != nil {
-		log.Printf("Hygiene Error: Failed to fetch messages: %v", err)
-		return
-	}
-
-	now := time.Now()
-	cutoff := now.Add(-3 * time.Hour)
-
-	var toProcess []*discordgo.Message
-
-	for i := len(messages) - 1; i >= 0; i-- {
-		m := messages[i]
-
-		// 2. Cleanup old messages
-		if m.Timestamp.Before(cutoff) {
-			log.Printf("Hygiene: Deleting old message/thread reference: %s", m.ID)
-			_ = s.ChannelMessageDelete(buildChannelID, m.ID)
-			continue
-		}
-
-		// 3. Recovery: Find unprocessed user prompts
-		// Unprocessed = From human user AND has no thread
-		if m.Author.ID != s.State.User.ID && m.Thread == nil {
-			log.Printf("Recovery: Found unprocessed prompt: %s", m.ID)
-			toProcess = append(toProcess, m)
-		}
-	}
-
-	// 4. Sequential Re-processing (Oldest to newest)
-	for _, m := range toProcess {
-		mc := &discordgo.MessageCreate{Message: m}
-		handleUserChannelMessage(s, mc)
+	switch commandName {
+	case "unrestrict", "unrestricted":
+		_ = redisClient.Set(ctx, "darwin:yolo_mode", "true", 0).Err()
+		_, _ = s.ChannelMessageSend(m.ChannelID, "🔓 **Darwin YOLO Mode: ON** (Unrestricted)")
+	case "restrict", "restricted":
+		_ = redisClient.Set(ctx, "darwin:yolo_mode", "false", 0).Err()
+		_, _ = s.ChannelMessageSend(m.ChannelID, "🔒 **Darwin YOLO Mode: OFF** (Restricted)")
+	default:
+		// Unknown command, ignore or send help
 	}
 }
 
@@ -1130,6 +1003,14 @@ func sendEventData(eventData interface{}) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
+
+	// Log event type for observability
+	var typeFinder struct {
+		Type string `json:"type"`
+	}
+	_ = json.Unmarshal(eventJSON, &typeFinder)
+	log.Printf("Discord Service: [EVENT] Sending %s (%d bytes)...", typeFinder.Type, len(eventJSON))
+
 	request := map[string]interface{}{"service": "dex-discord-service", "event": json.RawMessage(eventJSON)}
 	body, err := json.Marshal(request)
 	if err != nil {
@@ -1146,14 +1027,15 @@ func sendEventData(eventData interface{}) error {
 			}()
 			if resp.StatusCode < 300 {
 				utils.IncrementEventsSent()
+				log.Printf("Discord Service: [SUCCESS] Event %s emitted", typeFinder.Type)
 				return nil
 			}
 
 			// Read response body for error details
 			respBody, _ := io.ReadAll(resp.Body)
-			log.Printf("Failed to send event (Attempt %d/3): Status %d, Body: %s", i+1, resp.StatusCode, string(respBody))
+			log.Printf("Discord Service: [ERROR] Failed to send event (Attempt %d/3): Status %d, Body: %s", i+1, resp.StatusCode, string(respBody))
 		} else {
-			log.Printf("Failed to send event (Attempt %d/3): %v", i+1, err)
+			log.Printf("Discord Service: [ERROR] Failed to send event (Attempt %d/3): %v", i+1, err)
 		}
 		time.Sleep(time.Duration(i+1) * 2 * time.Second)
 	}
@@ -1230,6 +1112,9 @@ func transcribeAudio(s *discordgo.Session, userID, channelID, redisKey, filePath
 	if err := sendEventData(event); err != nil {
 		log.Printf("Error sending transcription event: %v", err)
 	}
+
+	// Local Context Storage
+	_ = utils.AppendToChannelContext(channelID, event)
 }
 
 func guildMemberUpdate(s *discordgo.Session, m *discordgo.GuildMemberUpdate) {
@@ -1532,4 +1417,41 @@ func uiTruncate(text string, maxLen int) string {
 		return text[:maxLen]
 	}
 	return text[:maxLen-3] + "..."
+}
+
+func subscribeToDarwinResponses(s *discordgo.Session) {
+	ctx := context.Background()
+	pubsub := redisClient.Subscribe(ctx, "events:timeline:stream")
+	defer pubsub.Close()
+
+	ch := pubsub.Channel()
+
+	for msg := range ch {
+		var event struct {
+			ID        string          `json:"id"`
+			Service   string          `json:"service"`
+			Timestamp int64           `json:"timestamp"`
+			Event     json.RawMessage `json:"event"`
+		}
+		if err := json.Unmarshal([]byte(msg.Payload), &event); err != nil {
+			continue
+		}
+
+		var eventData map[string]interface{}
+		if err := json.Unmarshal(event.Event, &eventData); err != nil {
+			continue
+		}
+
+		if eventData["type"] == "system.darwin.build_channel_response" {
+			content, _ := eventData["content"].(string)
+			threadID, _ := eventData["thread_id"].(string)
+
+			if content != "" && threadID != "" {
+				chunks := utils.ChunkString(content, 1950)
+				for _, chunk := range chunks {
+					_, _ = s.ChannelMessageSend(threadID, chunk)
+				}
+			}
+		}
+	}
 }

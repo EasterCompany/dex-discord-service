@@ -96,7 +96,7 @@ func (vr *VoiceRecorder) MonitorSilence() {
 		vr.mutex.Unlock()
 
 		for _, userID := range usersToStop {
-			// StopRecording handles the mutex internally
+			log.Printf("MonitorSilence: User %s has stopped speaking (timeout).", userID)
 			if _, err := vr.StopRecording(userID); err != nil {
 				log.Printf("Error stopping recording for user %s: %v", userID, err)
 			}
@@ -131,7 +131,7 @@ func (vr *VoiceRecorder) StartRecording(userID, channelID string) error {
 
 	vr.recordings[userID] = recording
 
-	log.Printf("Started recording for user %s in channel %s", userID, channelID)
+	log.Printf("VoiceRecorder: [START] Recording user %s in channel %s", userID, channelID)
 
 	// Trigger callback asynchronously
 	if vr.OnStart != nil {
@@ -158,7 +158,7 @@ func (vr *VoiceRecorder) StopRecording(userID string) (string, error) {
 	// Don't save if buffer is empty or recording was too short (< 0.75 second)
 	// 48kHz * 2 channels = 96000 samples per second, so 0.75s = 72000
 	if len(recording.Buffer) < 72000 {
-		log.Printf("Skipping save for user %s: recording too short (%d samples)", userID, len(recording.Buffer))
+		log.Printf("VoiceRecorder: [SKIP] Recording for user %s was too short (%d samples)", userID, len(recording.Buffer))
 		// Still trigger stop callback but with empty keys
 		if vr.OnStop != nil {
 			go vr.OnStop(userID, recording.ChannelID, "", "")
@@ -174,14 +174,15 @@ func (vr *VoiceRecorder) StopRecording(userID string) (string, error) {
 	var redisErr error
 
 	if fileErr == nil {
-		log.Printf("Saved audio to disk for user %s: %s", userID, filePath)
+		log.Printf("VoiceRecorder: [SUCCESS] Saved audio to disk for user %s: %s", userID, filePath)
 	} else {
-		log.Printf("Failed to save audio to disk: %v. Falling back to Redis.", fileErr)
+		log.Printf("VoiceRecorder: [FALLBACK] Failed to save audio to disk: %v. Falling back to Redis.", fileErr)
 		redisKey, redisErr = vr.saveRecordingToRedis(recording, stopTime)
 		if redisErr != nil {
+			log.Printf("VoiceRecorder: [ERROR] Critical failure saving audio for user %s: %v", userID, redisErr)
 			return "", fmt.Errorf("failed to save recording to Redis (fallback): %w", redisErr)
 		}
-		log.Printf("Stopped and saved recording for user %s to Redis key %s", userID, redisKey)
+		log.Printf("VoiceRecorder: [SUCCESS] Saved recording for user %s to Redis key %s", userID, redisKey)
 	}
 
 	// Trigger callback asynchronously
