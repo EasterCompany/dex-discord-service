@@ -1355,15 +1355,15 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		"• **Host:** `%s`\n\n"+
 		"**Network:**\n"+
 		"• **Local:** `%s`\n"+
-		"• **Tailscale:** `%s`\n"+
+		"• **Dex Net:** `%s`\n"+
 		"• **Public:** `%s`\n\n"+
 		"**Frontend Access:**\n"+
 		"🏠 [Local](http://%s:8000)\n"+
-		"🔗 [Tailscale (Remote)](http://%s:8000)\n"+
+		"🔗 [Dex Net (Remote)](http://%s:8000)\n"+
 		"🌎 [Production](https://easter.company)\n\n"+
 		"**SSH Access:**\n"+
 		"💻 [`ssh %s@%s`](%s) (Local)\n"+
-		"🌍 [`ssh %s@%s`](%s) (Tailscale)\n"+
+		"🌍 [`ssh %s@%s`](%s) (Dex Net)\n"+
 		"📱 [`mosh %s@%s`](%s) (Mobile)",
 		status.Vitals.Discord, status.Vitals.Release, status.Vitals.CPU, status.Vitals.Memory, status.Vitals.Disk, status.Vitals.GPU, status.Vitals.User, status.Vitals.Hostname,
 		localIP, tailscaleIP, publicIP,
@@ -1372,11 +1372,11 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 		username, tailscaleIP, makeLink(tailscaleIP, "ssh://"+username+"@"+tailscaleIP),
 		username, tailscaleIP, makeLink(tailscaleIP, "mosh://"+username+"@"+tailscaleIP))
 
-	// Add Tailscale Devices as a Markdown Table
+	// Add Network Devices as a Markdown Table
 
 	if len(status.Network.TailscaleDevices) > 0 {
 
-		tableHeader := "\n\n**Tailscale Network:**\n```\nDEVICE          IP              OS     STATUS\n--------------  --------------  -----  -------\n"
+		tableHeader := "\n\n**Network Devices:**\n```\nDEVICE          IP              OS     STATUS\n--------------  --------------  -----  -------\n"
 
 		tableBody := ""
 
