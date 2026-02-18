@@ -22,9 +22,9 @@ func expandPath(path string) (string, error) {
 	return path, nil
 }
 
-// getConfigPath constructs the full path to a config file in ~/Dexter/config.
+// getConfigPath constructs the full path to a config file in ~/.config/dexter.
 func getConfigPath(filename string) (string, error) {
-	return expandPath(filepath.Join("~/Dexter/config", filename))
+	return expandPath(filepath.Join("~/.config/dexter", filename))
 }
 
 // loadAndUnmarshal reads a JSON file from the config directory and unmarshals it into the provided interface.

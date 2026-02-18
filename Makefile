@@ -10,7 +10,7 @@ GOFMT=$(GOCMD) fmt
 GOLINT=golangci-lint
 
 # Paths
-BIN_DIR := ~/Dexter/bin
+BIN_DIR := ~/.local/bin
 SERVICE_NAME := dex-discord-service
 
 # Build information

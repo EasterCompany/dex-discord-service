@@ -40,7 +40,7 @@ The recommended way to manage this service is via the `dex-cli`.
 
 ### 1. Configure
 
-Ensure `~/Dexter/config/options.json` contains valid Discord credentials:
+Ensure `~/.config/dexter/options.json` contains valid Discord credentials:
 
 ```json
 {
@@ -140,7 +140,7 @@ Public endpoint to retrieve recorded or processed audio files.
 
 ## ⚙️ Configuration
 
-Configuration is managed centrally by `dex-cli` and stored in `~/Dexter/config/`.
+Configuration is managed centrally by `dex-cli` and stored in `~/.config/dexter/`.
 
 - **`service-map.json`**: Defines the service's port (`8300`).
 - **`options.json`**: Critical Discord settings (Token, Guild ID, etc.).
@@ -149,7 +149,7 @@ Configuration is managed centrally by `dex-cli` and stored in `~/Dexter/config/`
 
 **"Discord token not found"**
 
-- Verify that `options.json` exists in `~/Dexter/config/` and has a valid `discord.token` set.
+- Verify that `options.json` exists in `~/.config/dexter/` and has a valid `discord.token` set.
 
 **"Event service not found"**
 

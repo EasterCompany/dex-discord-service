@@ -1294,7 +1294,7 @@ func postStartupDebugInfo(s *discordgo.Session, port int) {
 	}
 
 	// Gather comprehensive status via CLI
-	dexPath := os.ExpandEnv("$HOME/Dexter/bin/dex")
+	dexPath := os.ExpandEnv("$HOME/.local/bin/dex")
 	cmd := exec.Command(dexPath, "status", "--json")
 	output, err := cmd.Output()
 	if err != nil {
