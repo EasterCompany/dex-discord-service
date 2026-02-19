@@ -74,7 +74,7 @@ func summarizeIfNeeded(channelID string, history []interface{}) {
 		defer contextMu.Unlock()
 
 		home, _ := os.UserHomeDir()
-		path := filepath.Join(home, "Dexter", "data", "discord", "channels", channelID+".json")
+		path := filepath.Join(home, ".local", "data", "discord", "channels", channelID+".json")
 		data, _ := json.MarshalIndent(newHistory, "", "  ")
 		_ = os.WriteFile(path, data, 0644)
 		log.Printf("Context Storage: Channel %s summarized successfully.", channelID)
@@ -87,7 +87,7 @@ func AppendToChannelContext(channelID string, entry interface{}) error {
 	defer contextMu.Unlock()
 
 	home, _ := os.UserHomeDir()
-	dir := filepath.Join(home, "Dexter", "data", "discord", "channels")
+	dir := filepath.Join(home, ".local", "data", "discord", "channels")
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		return fmt.Errorf("failed to create context directory: %w", err)
 	}
@@ -117,5 +117,5 @@ func AppendToChannelContext(channelID string, entry interface{}) error {
 
 func GetChannelContextPath(channelID string) string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, "Dexter", "data", "discord", "channels", channelID+".json")
+	return filepath.Join(home, ".local", "data", "discord", "channels", channelID+".json")
 }
