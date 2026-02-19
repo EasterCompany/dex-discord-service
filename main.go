@@ -18,6 +18,7 @@ import (
 	"github.com/EasterCompany/dex-discord-service/middleware"
 	"github.com/EasterCompany/dex-discord-service/utils"
 	"github.com/EasterCompany/dex-go-utils/network"
+	sharedUtils "github.com/EasterCompany/dex-go-utils/utils"
 )
 
 const ServiceName = "dex-discord-service"
@@ -68,7 +69,7 @@ func main() {
 	}
 
 	// Ensure only one instance is running
-	release, err := utils.AcquireSingleInstanceLock(ServiceName)
+	release, err := sharedUtils.AcquireSingleInstanceLock(ServiceName)
 	if err != nil {
 		log.Fatalf("FATAL: %v", err)
 	}
