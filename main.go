@@ -38,8 +38,8 @@ func main() {
 		switch arg {
 		case "version", "--version", "-v":
 			// Format version like other services: major.minor.patch.branch.commit.buildDate.arch
-			utils.SetVersion(version, branch, commit, buildDate, arch)
-			fmt.Println(utils.GetVersion().Str)
+			sharedUtils.SetVersion(version, branch, commit, buildDate, arch)
+			fmt.Println(sharedUtils.GetVersion().Str)
 			os.Exit(0)
 		case "help", "--help", "-h":
 			fmt.Println("Dexter Discord Service")
@@ -55,7 +55,7 @@ func main() {
 	flag.Parse()
 
 	// Set the version for the service.
-	utils.SetVersion(version, branch, commit, buildDate, arch)
+	sharedUtils.SetVersion(version, branch, commit, buildDate, arch)
 
 	// Load the service map and find our own configuration.
 	serviceMap, err := config.LoadServiceMap()
