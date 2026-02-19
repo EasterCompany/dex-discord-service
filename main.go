@@ -62,17 +62,17 @@ func main() {
 		log.Fatalf("FATAL: Could not load service-map.json: %v", err)
 	}
 
-	var selfConfig *config.ServiceEntry
-	for _, service := range serviceMap.Services["th"] {
-		if service.ID == ServiceName {
-			selfConfig = &service
-			break
-		}
+	selfConfig, err := serviceMap.ResolveService(ServiceName)
+	if err != nil {
+		log.Fatalf("FATAL: %v", err)
 	}
 
-	if selfConfig == nil {
-		log.Fatalf("FATAL: Service '%s' not found in service-map.json under 'th' services. Shutting down.", ServiceName)
+	// Ensure only one instance is running
+	release, err := utils.AcquireSingleInstanceLock(ServiceName)
+	if err != nil {
+		log.Fatalf("FATAL: %v", err)
 	}
+	defer release()
 
 	// Get port from config, convert to integer.
 	port, err := strconv.Atoi(selfConfig.Port)
